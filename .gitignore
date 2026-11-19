@@ -1,0 +1,4 @@
+*.obj
+*.map
+*.err
+src/QCA6174.OS2

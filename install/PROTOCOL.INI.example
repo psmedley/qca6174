@@ -1,0 +1,17 @@
+[PROT_MAN]
+
+   DRIVERNAME = PROTMAN$
+
+[IBMLXCFG]
+
+   TCPIP_NIF = TCPIP.NIF
+   QCA6174_NIF = QCA6174.NIF
+
+[TCPIP_NIF]
+
+   DriverName = TCPIP$
+   Bindings = QCA6174_NIF
+
+[QCA6174_NIF]
+
+   DriverName = WRND32$

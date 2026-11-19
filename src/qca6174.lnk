@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# wlink directives for QCA6174.OS2 (same container form as the RTL88EU driver: 16-bit NE "dll" with an
+# IOPL code segment, no default libraries). qc_hdr.obj must be first, qc_end.obj last.
+format os2 dll
+name QCA6174.OS2
+option quiet,map=QCA6174.map,verbose,caseexact,eliminate,nodefaultlibs
+option description '@#QCA6174-OS2:0.0.1#@##1## 19 Nov 2026 12:00:00     ARCAOS-DEV::en:US:2:::@@Qualcomm Atheros QCA6174 PCIe WiFi driver for OS/2 and ArcaOS (GenMAC + NDIS) phase 1'
+segment class 'CODE' iopl
+import DOSOPEN DOSCALLS.70
+import DOSCLOSE DOSCALLS.59
+import DOSREAD DOSCALLS.137
+import DOSDEVIOCTL DOSCALLS.53
+file qc_hdr.obj
+file qc_lib.obj
+file qc_ndisx.obj
+file qc_strat.obj
+file qc_pci.obj
+file qc_mem.obj
+file qc_fw.obj
+file ath_ce.obj
+file ath_boot.obj
+file ath_htc.obj
+file ath_wmi.obj
+file ath_sta.obj
+file qc_ndis.obj
+file qc_nic.obj
+file qc_dbg.obj
+file qc_end.obj

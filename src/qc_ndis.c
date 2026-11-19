@@ -1,0 +1,525 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+/*
+ * qc_ndis.c - NDIS 2.0.1 MAC front-end of the QCA6174 driver.
+ *
+ * Adapted from rt_ndis.c of the OS2World RTL88EU driver (GPL-2.0-only), written from the NDIS 2.0.1
+ * specification: at INIT the driver registers its common characteristics table with the Protocol Manager
+ * (PROTMAN$); the TCP/IP stack then binds (SystemRequest) and uses the upper dispatch table. The SMP-safe
+ * indication exclusion (IndicationOff/On against a running ReceiveChain on another CPU) is kept as it was.
+ *
+ * Phase 1: no data path yet (the station cannot associate), so TransmitChain drops the frame and counts it,
+ * exactly as the RTL driver does while it is not connected. The receive side is complete and is fed by
+ * ndis_rx_get()/ndis_rx_put() once the HTT receive path exists.
+ */
+#include "qc_ndis.h"
+
+extern USHORT __far __pascal DosOpen(PSZ name, PUSHORT phf, PUSHORT pAction, ULONG size, USHORT attr,
+                                     USHORT openFlag, USHORT openMode, ULONG reserved);
+extern USHORT __far __pascal DosClose(USHORT hf);
+extern USHORT __far __pascal DosRead(USHORT hf, PVOID buf, USHORT cb, PUSHORT pActual);
+extern USHORT __far __pascal DosDevIOCtl(PVOID data, PVOID parm, USHORT func, USHORT cat, USHORT hf);
+
+#define OPEN_ACTION_FAIL_IF_NEW      0x0000
+#define OPEN_ACTION_OPEN_IF_EXISTS   0x0001
+#define FILE_EXISTED                 0x0001
+#define OPEN_ACCESS_READONLY         0x0000
+#define OPEN_SHARE_DENYREADWRITE     0x0010
+#define OPEN_SHARE_DENYNONE          0x0040
+#define OPEN_FLAGS_NOINHERIT         0x0080
+
+extern int sta_tx(UCHAR FAR *eth, USHORT len);    /* ath_sta.c: 0 = queued, -1 = no link, -2 = busy        */
+
+/* ---- tables ---------------------------------------------------------------------------------------- */
+static char g_adapter_descr[] = "Qualcomm Atheros QCA6174 802.11ac PCIe WLAN (OS/2 native)";
+
+extern struct CommonChars   gCCT;
+extern struct MACSpecChars  gSCT;
+extern struct MACSpecStatus gSST;
+extern struct MACUpperDisp  gUDT;
+extern struct MCAddrList    gMCAL;
+
+struct CommonChars gCCT = {
+   sizeof(struct CommonChars),
+   MAJOR_NDIS_VERSION, MINOR_NDIS_VERSION,
+   0,
+   MAJOR_DRV_VERSION, MINOR_DRV_VERSION,
+   CCTFLAG_BINDING_UPPER,
+   NDIS_MODULE_NAME,
+   UPPER_PROTOCOL_MAC, UPPER_INTERFACE_MAC,
+   LOWER_PROTOCOL_PHYS, LOWER_INTERFACE_PHYS,
+   0, 0,
+   ndis_sysreq_entry,
+   &gSCT, &gSST, &gUDT,
+   0, 0, 0
+};
+
+struct MACSpecChars gSCT = {
+   sizeof(struct MACSpecChars),
+   MAC_TYPE_NAME,
+   STATION_ADDR_LEN,
+   { 0, 0, 0, 0, 0, 0 },
+   { 0, 0, 0, 0, 0, 0 },
+   0UL,
+   &gMCAL,
+   MAX_LINK_SPEED,
+   SCTFLAG_BROADCAST | SCTFLAG_MULTICAST | SCTFLAG_SET_STN_ADDR |
+   SCTFLAG_STAT_ALWAYS_CURR | SCTFLAG_RECEIVE_CHAIN,
+   MAX_FRAME_SIZE,
+   8UL * 1600UL, 1600,
+   8UL * 1600UL, 1600,
+   { 0xFF, 0xFF, 0xFF },
+   0,
+   g_adapter_descr,
+   0,                                      /* IRQ: filled in at INIT                                      */
+   4,
+   MAX_DATA_BLOCK_COUNT
+};
+
+struct MCAddrList gMCAL = { MAX_MC_ADDRS, 0 };
+
+struct MACSpecStatus gSST = {
+   sizeof(struct MACSpecStatus) - sizeof(WORD) - sizeof(BYTE),
+   0xFFFFFFFFUL, 0UL, 0, 0UL, 0xFFFFFFFFUL,
+   0UL, 0UL, 0xFFFFFFFFUL, 0UL, 0UL, 0UL,
+   0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL,
+   0UL,
+   0UL, 0xFFFFFFFFUL, 0UL, 0UL,
+   0xFFFFFFFFUL, 0xFFFFFFFFUL,
+   0UL, 0UL,
+   0, 0
+};
+
+struct MACUpperDisp gUDT = {
+   &gCCT,
+   ndis_genreq_entry,
+   ndis_transmit_entry,
+   ndis_transfer_entry,
+   ndis_release_entry,
+   ndis_indon_entry,
+   ndis_indoff_entry
+};
+
+static struct CommonChars   gProtCCT;
+static struct ProtLowerDisp gProtLDT;
+static USHORT               g_ndis_reg;
+static USHORT               g_txsel_lock;
+
+/* ---- registration with the Protocol Manager (INIT time) -------------------------------------------- */
+#define RXP_N     8
+#define RXP_SIZE  1520
+static DMA    g_rxp[RXP_N];                 /* receive buffers in DMA memory (far): DGROUP stays small     */
+static UCHAR  g_rxp_busy[RXP_N];
+static struct RCBufferD g_rcb[RXP_N];
+static DMA    g_txbuf;                      /* TransmitChain gathers the frame here                         */
+
+USHORT ndis_init(void)
+{
+   static char     pmname[] = "\\DEV\\PROTMAN$";
+   static struct PMReqBlock rb;
+   static USHORT   hPM, action;
+   USHORT          rc, i;
+
+   gCCT.moduleDS = rt_getds();
+   gSCT.irq = g_pci_irq;
+   for (i = 0; i < RXP_N; i++)
+      if (dma_get(RXP_SIZE, &g_rxp[i]))
+         g_rxp_busy[i] = 2;                 /* not available                                               */
+   dma_get(MAX_FRAME_SIZE + 64, &g_txbuf);
+
+   rc = DosOpen((PSZ)pmname, &hPM, &action, 0L, 0,
+                OPEN_ACTION_OPEN_IF_EXISTS,
+                OPEN_FLAGS_NOINHERIT | OPEN_SHARE_DENYREADWRITE | OPEN_ACCESS_READONLY, 0L);
+   if (rc != 0 || action != FILE_EXISTED)
+      return 1;
+   rb.opcode   = PM_OP_REGISTER_MODULE;
+   rb.pointer1 = (PVOID)&gCCT;
+   rb.pointer2 = 0;
+   rc = DosDevIOCtl(0, (PVOID)&rb, IOCTL_FUN_PM, IOCTL_CAT_LAN_MANAGER, hPM);
+   DosClose(hPM);
+   if (rc != 0 || rb.status != 0)
+      return 2;
+   g_ndis_reg = 1;
+   return 0;
+}
+
+WORD ndis_is_open(void)
+{
+   return (gSST.status & SSTATUS_OPEN) ? 1 : 0;
+}
+
+/* Adopt the chip's address unless the protocol has already bound with another one. */
+int ndis_set_mac(UCHAR *m)
+{
+   USHORT i;
+
+   if (gSST.status & SSTATUS_BOUND) {
+      for (i = 0; i < 6; i++)
+         if (gSCT.currStnAddr[i] != m[i])
+            return -1;
+      return 0;
+   }
+   for (i = 0; i < 6; i++)
+      gSCT.permStnAddr[i] = gSCT.currStnAddr[i] = m[i];
+   return 0;
+}
+
+/* ---- receive ---------------------------------------------------------------------------------------- */
+static BYTE   g_indicate;
+static USHORT g_ind_off, g_ind_owner;
+USHORT        g_ind_drop_busy, g_ind_drop_off, g_ind_tmo, g_ind_reent;
+#define IND_WAIT_ROUNDS 16
+
+UCHAR FAR *ndis_rx_get(USHORT *handle)
+{
+   USHORT i;
+
+   for (i = 0; i < RXP_N; i++)
+      if (g_rxp_busy[i] == 0) {
+         g_rxp_busy[i] = 1;
+         *handle = i;
+         return DPTR(g_rxp[i]);
+      }
+   gSST.recFrNoBuff++;
+   return 0;
+}
+
+void ndis_rx_free(USHORT h)
+{
+   if (h < RXP_N)
+      g_rxp_busy[h] = 0;
+}
+
+static void deliver(USHORT h, USHORT len)
+{
+   WORD   rc;
+   UCHAR FAR *d = DPTR(g_rxp[h]);
+   struct RCBufferD *rcb = &g_rcb[h];
+   USHORT cid;
+
+   if (!(gSST.status & SSTATUS_BOUND) || gSST.filter == 0) {
+      g_rxp_busy[h] = 0;
+      return;
+   }
+   cid = (USHORT)(rt_cpu_id() + 1);
+   if (rt_lock_try(&g_ind_owner, cid)) {
+      g_ind_drop_busy++;
+      g_rxp_busy[h] = 0;
+      return;
+   }
+   if (g_ind_off != 0) {
+      rt_lock_release(&g_ind_owner);
+      g_ind_drop_off++;
+      g_rxp_busy[h] = 0;
+      return;
+   }
+   gSST.recFrames++;
+   gSST.recBytes += len;
+   if (d[0] & STATION_ADDR_MC) {
+      if (d[0] == 0xFF && d[1] == 0xFF && d[2] == 0xFF && d[3] == 0xFF && d[4] == 0xFF && d[5] == 0xFF)
+         gSST.recBCFrames++;
+      else
+         gSST.recMCFrames++;
+   }
+   rcb->dbCount       = 1;
+   rcb->db[0].dataLen = len;
+   rcb->db[0].pData   = (PBYTE)d;
+   g_indicate = 0xFF;
+   rt_atomic_inc(&g_ind_off);
+   rc = (*gProtLDT.pReceiveChain)(gCCT.moduleID, len, (WORD)(h + 1), (PRCBD)rcb, (PBYTE)&g_indicate,
+                                  gProtCCT.moduleDS);
+   if (g_indicate)
+      rt_atomic_dec_nz(&g_ind_off);
+   if (rc != NDIS_WAIT_FOR_RELEASE)
+      g_rxp_busy[h] = 0;
+   (*gProtLDT.pIndicationComplete)(gCCT.moduleID, gProtCCT.moduleDS);
+   rt_lock_release(&g_ind_owner);
+}
+
+/* Frames are delivered from the context hook (task time), never from the interrupt handler. */
+static UCHAR  g_q_h[RXP_N];
+static USHORT g_q_len[RXP_N];
+static USHORT g_q_head, g_q_tail;
+
+void ndis_hook_deliver(void)
+{
+   while (g_q_tail != g_q_head) {
+      USHORT i = (USHORT)(g_q_tail % RXP_N);
+
+      if (g_ind_off != 0)
+         return;                                  /* IndicationOn re-arms the hook                         */
+      g_q_tail++;
+      deliver(g_q_h[i], g_q_len[i]);
+   }
+}
+
+void ndis_rx_put(USHORT h, USHORT len)
+{
+   if (!(gSST.status & SSTATUS_BOUND) || gSST.filter == 0) {
+      g_rxp_busy[h] = 0;
+      return;
+   }
+   g_q_h[g_q_head % RXP_N]   = (UCHAR)h;
+   g_q_len[g_q_head % RXP_N] = len;
+   rt_atomic_inc(&g_q_head);
+   hook_arm();
+}
+
+/* ---- NDIS entry points ------------------------------------------------------------------------------ */
+WORD __cdecl ndis_c_sysreq(DWORD param1, DWORD param2, WORD param3, WORD opcode)
+{
+   if (!g_ndis_reg)
+      return NDIS_DRIVER_NOT_INIT;
+   if (opcode != SYSTEM_REQUEST_BIND)
+      return NDIS_INVALID_FUNCTION;
+   if (param1 == 0 || param3 != 0)
+      return NDIS_INVALID_PARAMETER;
+   if (gSST.status & SSTATUS_BOUND)
+      return NDIS_ALREADY_STARTED;
+   gProtCCT = *(PCCT)param1;
+   gProtLDT = *gProtCCT.pLowDisp;
+   *(PCCT FAR *)param2 = &gCCT;
+   gSST.status |= SSTATUS_BOUND | SSTATUS_HW_OK | SSTATUS_OPEN;
+   return NDIS_SUCCESS;
+}
+
+WORD __cdecl ndis_c_genreq(WORD protID, WORD reqHandle, WORD param1, DWORD param2, WORD opcode)
+{
+   WORD   rc = NDIS_SUCCESS;
+   USHORT i;
+
+   (void)protID; (void)reqHandle;
+   switch (opcode) {
+   case OPEN_ADAPTER:
+      gSST.status |= SSTATUS_OPEN | SSTATUS_HW_OK;
+      break;
+   case CLOSE_ADAPTER:
+      gSST.status &= ~SSTATUS_OPEN;
+      break;
+   case SET_PACKET_FILTER:
+      if (param2 != 0 || (param1 & PACK_FILTER_RESERVED))
+         rc = NDIS_INVALID_PARAMETER;
+      else
+         gSST.filter = param1;
+      break;
+   case SET_STATION_ADDRESS:
+      if (param1 != 0 || (*(PBYTE)param2 & STATION_ADDR_MC))
+         rc = NDIS_INVALID_PARAMETER;
+      else
+         for (i = 0; i < STATION_ADDR_LEN; i++)
+            gSCT.currStnAddr[i] = ((PBYTE)param2)[i];
+      break;
+   case ADD_MULTICAST_ADDRESS:
+   case DELETE_MULTICAST_ADDRESS:
+   case UPDATE_STATISTICS:
+   case SET_LOOK_AHEAD:
+   case RESET_MAC:
+      break;
+   case CLEAR_STATISTICS:
+      gSST.recFrames = gSST.recBCFrames = gSST.recMCFrames = gSST.recFrCRC = gSST.recFrNoBuff = 0;
+      gSST.trFrames = gSST.trBCFrames = gSST.trMCFrames = gSST.trFrHW = 0;
+      break;
+   default:
+      rc = NDIS_NOT_SUPPORTED;
+   }
+   return rc;
+}
+
+/* Gather the chain into one Ethernet frame and hand it to the station. The data is copied before the
+ * call returns, so SUCCESS (no TransmitConfirm) is the right answer. */
+WORD __cdecl ndis_c_transmit(WORD protID, WORD reqHandle, PTCBD pTCBufferD)
+{
+   USHORT n = 0, i, k, fl;
+   UCHAR FAR *g;
+   int    r;
+
+   (void)protID; (void)reqHandle;
+   if (!(gSST.status & SSTATUS_OPEN))
+      return NDIS_INVALID_FUNCTION;
+   if (!g_joined || !g_txbuf.phys) {
+      gSST.trFrHW++;                             /* no connection: the frame is lost (TCP/IP retries later)  */
+      return NDIS_SUCCESS;
+   }
+   g = DPTR(g_txbuf);
+   if (pTCBufferD->immedLen) {
+      if (pTCBufferD->immedLen > MAX_FRAME_SIZE) { gSST.trFrHW++; return NDIS_SUCCESS; }
+      rt_movmem((PVOID)g, (PVOID)pTCBufferD->pImmed, pTCBufferD->immedLen);
+      n = pTCBufferD->immedLen;
+   }
+   for (i = 0; i < pTCBufferD->dbCount && i < MAX_DATA_BLOCK_COUNT; i++) {
+      k = pTCBufferD->db[i].dataLen;
+      if ((USHORT)(n + k) > MAX_FRAME_SIZE || (USHORT)(n + k) < n) { gSST.trFrHW++; return NDIS_SUCCESS; }
+      if (pTCBufferD->db[i].ptrType == 0) {      /* physical address                                        */
+         ULONG ph = *(ULONG FAR *)&pTCBufferD->db[i].pData;
+         USHORT s;
+
+         fl = rt_irq_save();
+         if (rt_lock_acquire(&g_txsel_lock, (USHORT)(rt_cpu_id() + 1))) {
+            rt_irq_restore(fl);
+            gSST.trFrHW++;
+            return NDIS_SUCCESS;
+         }
+         s = scr_map(SCR_C, ph, k);
+         if (s)
+            rt_movmem((PVOID)(g + n), MAKEP(s, 0), k);
+         rt_lock_release(&g_txsel_lock);
+         rt_irq_restore(fl);
+      } else {
+         rt_movmem((PVOID)(g + n), (PVOID)pTCBufferD->db[i].pData, k);
+      }
+      n = (USHORT)(n + k);
+   }
+   r = sta_tx(g, n);
+   if (r == 0) {
+      gSST.trFrames++;
+      gSST.trBytes += n;
+      if (g[0] & STATION_ADDR_MC)
+         gSST.trBCFrames++;
+      return NDIS_SUCCESS;
+   }
+   if (r == -2)
+      return NDIS_OUT_OF_RESOURCE;
+   gSST.trFrHW++;
+   return NDIS_SUCCESS;
+}
+
+WORD __cdecl ndis_c_transfer(PUSHORT pBytesCopied, WORD frameOffset, PTDBD pTDBufferD)
+{
+   (void)frameOffset; (void)pTDBufferD;
+   *pBytesCopied = 0;
+   return NDIS_INVALID_FUNCTION;                  /* only ReceiveChain indications                           */
+}
+
+WORD __cdecl ndis_c_release(WORD reqHandle)
+{
+   if (reqHandle >= 1 && reqHandle <= RXP_N) {
+      g_rxp_busy[reqHandle - 1] = 0;
+      return NDIS_SUCCESS;
+   }
+   return NDIS_INVALID_PARAMETER;
+}
+
+/* NDIS 2.0.1: both return with interrupts disabled; the caller re-enables them. */
+WORD __cdecl ndis_c_indoff(void)
+{
+   USHORT own;
+
+   rt_cli();
+   rt_atomic_inc(&g_ind_off);
+   own = g_ind_owner;
+   if (own != 0) {
+      if (own == (USHORT)(rt_cpu_id() + 1))
+         g_ind_reent++;
+      else if (rt_wait_zero(&g_ind_owner, IND_WAIT_ROUNDS))
+         g_ind_tmo++;
+   }
+   return NDIS_SUCCESS;
+}
+
+WORD __cdecl ndis_c_indon(void)
+{
+   rt_atomic_dec_nz(&g_ind_off);
+   if (g_ind_off == 0 && g_q_tail != g_q_head)
+      hook_arm();
+   rt_cli();
+   return NDIS_SUCCESS;
+}
+
+/* ===== IP interface number (lanN): position of [QCA6174_NIF] in the Bindings of [TCPIP_NIF] ===== */
+USHORT g_lannum = 1;
+
+#define PL_MAX 600
+static char   g_pl[PL_MAX + 1];
+static USHORT g_pln;
+static UCHAR  g_in_tcpip;
+static char   g_pbuf[256];
+
+static char lc(char c) { return (char)((c >= 'A' && c <= 'Z') ? c + 32 : c); }
+
+static int eqn(char *s, USHORT n, char *t)
+{
+   USHORT i;
+
+   for (i = 0; i < n; i++)
+      if (t[i] == 0 || lc(s[i]) != t[i])
+         return 0;
+   return t[n] == 0;
+}
+
+static void pi_line(char *l)
+{
+   char  *e, *k, *p, *v;
+   USHORT idx;
+
+   while (*l == ' ' || *l == '\t') l++;
+   if (*l == 0 || *l == ';')
+      return;
+   if (*l == '[') {
+      l++;
+      e = l;
+      while (*e && *e != ']') e++;
+      while (e > l && (e[-1] == ' ' || e[-1] == '\t')) e--;
+      g_in_tcpip = (UCHAR)eqn(l, (USHORT)(e - l), "tcpip_nif");
+      return;
+   }
+   if (!g_in_tcpip)
+      return;
+   k = l;
+   p = l;
+   while (*p && *p != '=') p++;
+   if (*p != '=')
+      return;
+   e = p;
+   while (e > k && (e[-1] == ' ' || e[-1] == '\t')) e--;
+   if (!eqn(k, (USHORT)(e - k), "bindings"))
+      return;
+   v = p + 1;
+   idx = 0;
+   for (;;) {
+      char *a, *b;
+
+      while (*v == ' ' || *v == '\t') v++;
+      a = v;
+      while (*v && *v != ',') v++;
+      b = v;
+      while (b > a && (b[-1] == ' ' || b[-1] == '\t')) b--;
+      if (eqn(a, (USHORT)(b - a), "qca6174_nif")) {
+         g_lannum = idx;
+         return;
+      }
+      if (*v == 0)
+         return;
+      v++;
+      idx++;
+   }
+}
+
+void ndis_find_lan(void)
+{
+   static char path[] = "\\IBMCOM\\PROTOCOL.INI";
+   static USHORT h, action, got;
+   USHORT i;
+   char   c;
+
+   if (DosOpen((PSZ)path, &h, &action, 0L, 0,
+               OPEN_ACTION_OPEN_IF_EXISTS | OPEN_ACTION_FAIL_IF_NEW,
+               OPEN_FLAGS_NOINHERIT | OPEN_SHARE_DENYNONE | OPEN_ACCESS_READONLY, 0L) != 0)
+      return;
+   g_pln = 0;
+   g_in_tcpip = 0;
+   while (DosRead(h, (PVOID)g_pbuf, sizeof(g_pbuf), &got) == 0 && got) {
+      for (i = 0; i < got; i++) {
+         c = g_pbuf[i];
+         if (c == '\n') {
+            g_pl[g_pln] = 0;
+            pi_line(g_pl);
+            g_pln = 0;
+         } else if (c != '\r' && c != 0x1A && g_pln < PL_MAX)
+            g_pl[g_pln++] = c;
+      }
+   }
+   if (g_pln) {
+      g_pl[g_pln] = 0;
+      pi_line(g_pl);
+   }
+   DosClose(h);
+}

@@ -1,0 +1,10 @@
+[QCA6174]
+Type = NDIS
+Title = "Qualcomm Atheros QCA6174 802.11ac PCIe WLAN (OS/2 native)"
+Version = 0.0
+DriverName = WRND32$
+Xports = NETBEUI, LANDD
+
+[File]
+Name = QCA6174.OS2
+Path = IBMCOM\MACS
