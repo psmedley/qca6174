@@ -21,6 +21,21 @@
 #define WMI_TLV_READY_EVENTID           0x00002UL
 #define WMI_TLV_SCAN_EVENTID            0x03001UL
 #define WMI_TLV_MGMT_RX_EVENTID         0x07001UL
+#define WMI_TLV_VDEV_START_RESP_EVENTID 0x05001UL
+#define WMI_TLV_VDEV_STOPPED_EVENTID    0x05002UL
+#define WMI_TLV_PEER_STA_KICKOUT_EVENTID 0x06001UL
+#define WMI_TLV_MGMT_TX_COMPL_EVENTID   0x07006UL
+/* station commands */
+#define WMI_TLV_VDEV_START_REQUEST_CMDID 0x05003UL
+#define WMI_TLV_VDEV_UP_CMDID           0x05005UL
+#define WMI_TLV_VDEV_STOP_CMDID         0x05006UL
+#define WMI_TLV_VDEV_DOWN_CMDID         0x05007UL
+#define WMI_TLV_VDEV_INSTALL_KEY_CMDID  0x05009UL
+#define WMI_TLV_PEER_CREATE_CMDID       0x06001UL
+#define WMI_TLV_PEER_DELETE_CMDID       0x06002UL
+#define WMI_TLV_PEER_SET_PARAM_CMDID    0x06004UL
+#define WMI_TLV_PEER_ASSOC_CMDID        0x06005UL
+#define WMI_TLV_MGMT_TX_CMDID           0x07006UL
 /* tags */
 #define TAG_ARRAY_UINT32                0x10
 #define TAG_ARRAY_BYTE                  0x11
@@ -40,6 +55,26 @@
 #define TAG_CHANNEL                     0x50
 #define TAG_PDEV_SET_REGDOMAIN_CMD      0x51
 #define TAG_VDEV_CREATE_CMD             0x56
+#define TAG_VDEV_START_REQUEST_CMD      0x58
+#define TAG_VDEV_UP_CMD                 0x5C
+#define TAG_VDEV_STOP_CMD               0x5D
+#define TAG_VDEV_DOWN_CMD               0x5E
+#define TAG_VDEV_INSTALL_KEY_CMD        0x60
+#define TAG_PEER_CREATE_CMD             0x61
+#define TAG_PEER_DELETE_CMD             0x62
+#define TAG_PEER_SET_PARAM_CMD          0x64
+#define TAG_PEER_ASSOC_COMPLETE_CMD     0x65
+#define TAG_VHT_RATE_SET                0x66
+#define TAG_VDEV_START_RESPONSE_EVENT   0x28
+#define TAG_VDEV_STOPPED_EVENT          0x29
+#define TAG_MGMT_TX_CMD                 0x1A6
+#define WMI_TLV_CIPHER_NONE             0
+#define WMI_TLV_CIPHER_AES_CCM          4
+#define WMI_KEY_PAIRWISE                0
+#define WMI_KEY_GROUP                   1
+#define WMI_PEER_AUTHORIZE              3
+#define SVC_RX_FULL_REORDER             65     /* WMI_TLV_SERVICE_RX_FULL_REORDER                           */
+#define SVC_MGMT_TX_WMI                 76     /* WMI_TLV_SERVICE_MGMT_TX_WMI                               */
 
 #define WMI_SCAN_EVENT_STARTED          0x001UL
 #define WMI_SCAN_EVENT_COMPLETED        0x002UL
@@ -67,6 +102,10 @@
 USHORT g_wmi_svc_ready, g_wmi_ready, g_scan_done, g_scan_running;
 ULONG  g_fw_build, g_eeprom_rd;
 USHORT g_wmi_events, g_mgmt_rx;
+USHORT g_svc_full_reorder, g_svc_mgmt_tx_wmi;
+USHORT g_vdev_start_done, g_vdev_start_status, g_vdev_stopped, g_peer_map, g_sec_ind;
+UCHAR  g_peer_map_addr[6];
+USHORT g_link_lost;
 static UCHAR g_wmi_mac[6];
 
 static struct { ULONG req_id, unit_size, info, units; } g_memreq[MAX_MEM_REQS];
@@ -141,7 +180,7 @@ static int wmi_send(ULONG cmd, USHORT len)
 /* ---- events ----------------------------------------------------------------------------------------- */
 static void ev_service_ready(UCHAR FAR *p, USHORT len)
 {
-   USHORT pos = 0, tl, tag, got_reqs = 0;
+   USHORT pos = 0, tl, tag, got_bmap = 0;
 
    while (pos + 4 <= len) {
       tl  = (USHORT)(p[pos] | (p[pos + 1] << 8));
@@ -153,23 +192,34 @@ static void ev_service_ready(UCHAR FAR *p, USHORT len)
          g_fw_build = g32(p + pos);
       else if (tag == TAG_HAL_REG_CAPABILITIES && tl >= 4)
          g_eeprom_rd = g32(p + pos);
-      else if (tag == TAG_ARRAY_STRUCT && !got_reqs) {      /* the first struct array is the memory requests */
+      else if (tag == TAG_ARRAY_UINT32 && !got_bmap) {      /* the first u32 array is the service bitmap     */
+         got_bmap = 1;
+         if (tl >= 12) {                                    /* service 65 is in word 2, bit 1; 76 in bit 12   */
+            ULONG w2 = g32(p + pos + 8);
+
+            g_svc_full_reorder = (USHORT)((w2 >> 1) & 1);
+            g_svc_mgmt_tx_wmi  = (USHORT)((w2 >> 12) & 1);
+         }
+      }
+      else if (tag == TAG_ARRAY_STRUCT) {                   /* the struct array of memory requests            */
          USHORT q = pos, end = (USHORT)(pos + tl);
+         USHORT it0 = (q + 4 <= end) ? (USHORT)(p[q + 2] | (p[q + 3] << 8)) : 0;
 
-         got_reqs = 1;
-         g_nmemreq = 0;
-         while (q + 4 + 16 <= end && g_nmemreq < MAX_MEM_REQS) {
-            USHORT il = (USHORT)(p[q] | (p[q + 1] << 8));
-            USHORT it = (USHORT)(p[q + 2] | (p[q + 3] << 8));
+         if (it0 == TAG_WLAN_HOST_MEM_REQ) {
+            g_nmemreq = 0;
+            while (q + 4 + 16 <= end && g_nmemreq < MAX_MEM_REQS) {
+               USHORT il = (USHORT)(p[q] | (p[q + 1] << 8));
+               USHORT it = (USHORT)(p[q + 2] | (p[q + 3] << 8));
 
-            if (it == TAG_WLAN_HOST_MEM_REQ && il >= 16) {
-               g_memreq[g_nmemreq].req_id    = g32(p + q + 4);
-               g_memreq[g_nmemreq].unit_size = g32(p + q + 8);
-               g_memreq[g_nmemreq].info      = g32(p + q + 12);
-               g_memreq[g_nmemreq].units     = g32(p + q + 16);
-               g_nmemreq++;
+               if (it == TAG_WLAN_HOST_MEM_REQ && il >= 16) {
+                  g_memreq[g_nmemreq].req_id    = g32(p + q + 4);
+                  g_memreq[g_nmemreq].unit_size = g32(p + q + 8);
+                  g_memreq[g_nmemreq].info      = g32(p + q + 12);
+                  g_memreq[g_nmemreq].units     = g32(p + q + 16);
+                  g_nmemreq++;
+               }
+               q = (USHORT)(q + 4 + il);
             }
-            q = (USHORT)(q + 4 + il);
          }
       }
       pos = (USHORT)(pos + tl);
@@ -232,8 +282,12 @@ static void ev_mgmt_rx(UCHAR FAR *p, USHORT len)
       return;
    if (blen < (ULONG)flen)
       flen = (USHORT)blen;
-   if (flen >= 24 && (frame[0] == 0x80 || frame[0] == 0x50))      /* beacon / probe response           */
+   if (flen < 24)
+      return;
+   if (frame[0] == 0x80 || frame[0] == 0x50)                      /* beacon / probe response           */
       sta_beacon(frame, flen, (USHORT)chan, (short)((short)(USHORT)snr - 95));  /* ATH10K_DEFAULT_NOISE_FLOOR */
+   else
+      sta_mgmt_rx(frame, flen);                                   /* auth, assoc response, deauth, ... */
 }
 
 void wmi_rx(UCHAR FAR *p, USHORT len)
@@ -250,6 +304,14 @@ void wmi_rx(UCHAR FAR *p, USHORT len)
    else if (id == WMI_TLV_READY_EVENTID)         ev_ready(p, len);
    else if (id == WMI_TLV_SCAN_EVENTID)          ev_scan(p, len);
    else if (id == WMI_TLV_MGMT_RX_EVENTID)       ev_mgmt_rx(p, len);
+   else if (id == WMI_TLV_VDEV_START_RESP_EVENTID) {
+      if (len >= 4 + 16 && (p[2] | (p[3] << 8)) == TAG_VDEV_START_RESPONSE_EVENT) {
+         g_vdev_start_status = (USHORT)g32(p + 4 + 12);        /* wmi_vdev_start_response_event.status      */
+         g_vdev_start_done = 1;
+      }
+   }
+   else if (id == WMI_TLV_VDEV_STOPPED_EVENTID)  g_vdev_stopped = 1;
+   else if (id == WMI_TLV_PEER_STA_KICKOUT_EVENTID) g_link_lost = 1;   /* the firmware gave up on the AP    */
 }
 
 /* ---- host memory for the firmware (ath10k_wmi_event_service_ready_work, _alloc_host_mem) ---------- */
@@ -327,8 +389,8 @@ static int cmd_init(void)
    c = tlv(q, TAG_RESOURCE_CONFIG, 44 * 4);          /* struct wmi_tlv_resource_config: 44 words       */
    p32(c + 0 * 4,  TLV_NUM_VDEVS);                   /* num_vdevs                                      */
    p32(c + 1 * 4,  TLV_NUM_PEERS);                   /* num_peers                                      */
-   p32(c + 2 * 4,  0UL);                             /* num_offload_peers (no full rx reorder)          */
-   p32(c + 3 * 4,  0UL);                             /* num_offload_reorder_bufs                        */
+   p32(c + 2 * 4,  g_svc_full_reorder ? (ULONG)TLV_NUM_VDEVS : 0UL);   /* num_offload_peers            */
+   p32(c + 3 * 4,  g_svc_full_reorder ? (ULONG)TLV_NUM_VDEVS : 0UL);   /* num_offload_reorder_bufs     */
    p32(c + 4 * 4,  2UL);                             /* num_peer_keys                                   */
    p32(c + 5 * 4,  TLV_NUM_PEERS * 2);               /* num_tids                                        */
    p32(c + 6 * 4,  0x10UL);                          /* ast_skid_limit                                  */
@@ -533,4 +595,223 @@ int wmi_scan(void)
       return -3;
    }
    return 0;
+}
+
+/* =====================================================================================================
+ * Station commands (phase 2). Formats from ath10k wmi-tlv.c (ath10k_wmi_tlv_op_gen_vdev_start, _vdev_up,
+ * _vdev_stop, _vdev_down, _peer_create, _peer_delete, _peer_set_param, _vdev_install_key, _peer_assoc,
+ * _mgmt_tx_send); the numeric tags and command ids were computed from the headers (see PROVENANCE.md).
+ * vdev 0 is the only vdev (created in wmi_init_target).
+ * ===================================================================================================== */
+
+static int put_channel(UCHAR FAR *w, UCHAR c)
+{
+   USHORT mhz = ch_mhz(c);
+   ULONG  fl = (c <= 14) ? MODE_11G : MODE_11A;
+
+   p32(w + 0, (ULONG)mhz);
+   p32(w + 4, (ULONG)mhz);
+   p32(w + 8, 0UL);
+   p32(w + 12, fl);                                   /* legacy (non-HT) 20 MHz mode                       */
+   w[16] = 0;  w[17] = 40;  w[18] = 40;  w[19] = 0;
+   w[20] = 0;  w[21] = 40;
+   return 0;
+}
+
+static void put_mac(UCHAR FAR *d, UCHAR FAR *a)
+{
+   USHORT i;
+
+   for (i = 0; i < 6; i++)
+      d[i] = a[i];
+}
+
+int wmi_vdev_start(UCHAR ch, USHORT bcn, USHORT dtim)
+{
+   UCHAR FAR *p = wmi_begin(), FAR *c, FAR *q;
+
+   if (!p)
+      return -1;
+   c = tlv(p, TAG_VDEV_START_REQUEST_CMD, 72);        /* struct wmi_tlv_vdev_start_cmd                      */
+   p32(c + 0, 0UL);                                   /* vdev_id                                            */
+   p32(c + 8, (ULONG)bcn);                            /* bcn_intval                                         */
+   p32(c + 12, (ULONG)dtim);                          /* dtim_period                                        */
+   /* flags, ssid (len 0), bcn_tx_rate, bcn_tx_power, num_noa_descr, disable_hw_ack: all zero              */
+   q = tlv(c + 72, TAG_CHANNEL, 24);
+   put_channel(q, ch);
+   q = tlv(q + 24, TAG_ARRAY_STRUCT, 0);
+   g_vdev_start_done = 0;
+   return wmi_send(WMI_TLV_VDEV_START_REQUEST_CMDID, (USHORT)(q - p));
+}
+
+int wmi_vdev_stop(void)
+{
+   UCHAR FAR *p = wmi_begin(), FAR *c;
+
+   if (!p)
+      return -1;
+   c = tlv(p, TAG_VDEV_STOP_CMD, 4);
+   p32(c, 0UL);
+   g_vdev_stopped = 0;
+   return wmi_send(WMI_TLV_VDEV_STOP_CMDID, 8);
+}
+
+int wmi_vdev_down(void)
+{
+   UCHAR FAR *p = wmi_begin(), FAR *c;
+
+   if (!p)
+      return -1;
+   c = tlv(p, TAG_VDEV_DOWN_CMD, 4);
+   p32(c, 0UL);
+   return wmi_send(WMI_TLV_VDEV_DOWN_CMDID, 8);
+}
+
+int wmi_vdev_up(USHORT aid, UCHAR FAR *bssid)
+{
+   UCHAR FAR *p = wmi_begin(), FAR *c;
+
+   if (!p)
+      return -1;
+   c = tlv(p, TAG_VDEV_UP_CMD, 16);
+   p32(c + 0, 0UL);
+   p32(c + 4, (ULONG)aid);
+   put_mac(c + 8, bssid);
+   return wmi_send(WMI_TLV_VDEV_UP_CMDID, 20);
+}
+
+int wmi_peer_create(UCHAR FAR *addr)
+{
+   UCHAR FAR *p = wmi_begin(), FAR *c;
+
+   if (!p)
+      return -1;
+   c = tlv(p, TAG_PEER_CREATE_CMD, 16);
+   p32(c + 0, 0UL);                                   /* vdev_id                                            */
+   put_mac(c + 4, addr);
+   p32(c + 12, 0UL);                                  /* WMI_PEER_TYPE_DEFAULT                              */
+   g_peer_map = 0;
+   return wmi_send(WMI_TLV_PEER_CREATE_CMDID, 20);
+}
+
+int wmi_peer_delete(UCHAR FAR *addr)
+{
+   UCHAR FAR *p = wmi_begin(), FAR *c;
+
+   if (!p)
+      return -1;
+   c = tlv(p, TAG_PEER_DELETE_CMD, 12);
+   p32(c + 0, 0UL);
+   put_mac(c + 4, addr);
+   return wmi_send(WMI_TLV_PEER_DELETE_CMDID, 16);
+}
+
+int wmi_peer_authorize(UCHAR FAR *addr)
+{
+   UCHAR FAR *p = wmi_begin(), FAR *c;
+
+   if (!p)
+      return -1;
+   c = tlv(p, TAG_PEER_SET_PARAM_CMD, 20);
+   p32(c + 0, 0UL);
+   put_mac(c + 4, addr);
+   p32(c + 12, (ULONG)WMI_PEER_AUTHORIZE);
+   p32(c + 16, 1UL);
+   return wmi_send(WMI_TLV_PEER_SET_PARAM_CMDID, 24);
+}
+
+/* rates: 802.11 supported-rate octets (500 kbit/s units, bit 7 = basic); nrates <= 12 */
+int wmi_peer_assoc(UCHAR FAR *addr, USHORT aid, USHORT caps, USHORT listen, ULONG flags,
+                   UCHAR FAR *rates, USHORT nrates, USHORT phymode)
+{
+   UCHAR FAR *p = wmi_begin(), FAR *c, FAR *q;
+   USHORT i, rl;
+
+   if (!p)
+      return -1;
+   if (nrates > 12)
+      nrates = 12;
+   rl = (USHORT)((nrates + 3) & ~3);
+   c = tlv(p, TAG_PEER_ASSOC_COMPLETE_CMD, 76);       /* struct wmi_tlv_peer_assoc_cmd                      */
+   put_mac(c + 0, addr);
+   p32(c + 8, 0UL);                                   /* vdev_id                                            */
+   p32(c + 12, 1UL);                                  /* new_assoc                                          */
+   p32(c + 16, (ULONG)aid);
+   p32(c + 20, flags);
+   p32(c + 24, (ULONG)caps);
+   p32(c + 28, (ULONG)listen);
+   /* ht_caps, max_mpdu, mpdu_density, rate_caps: zero (no HT) */
+   p32(c + 48, 1UL);                                  /* nss                                                */
+   /* vht_caps zero */
+   p32(c + 56, (ULONG)phymode);
+   p32(c + 68, (ULONG)nrates);                        /* num_legacy_rates                                   */
+   p32(c + 72, 0UL);                                  /* num_ht_rates                                       */
+   q = tlv(c + 76, TAG_ARRAY_BYTE, rl);               /* legacy rates, in ath10k rate codes                 */
+   for (i = 0; i < nrates; i++) {
+      UCHAR v = (UCHAR)(rates[i] & 0x7F);
+
+      q[i] = (UCHAR)((v & 1) ? (v | 0x80) : v);       /* 5.5 Mbit/s (11) -> 0x8B, the others unchanged     */
+   }
+   q = tlv(q + rl, TAG_ARRAY_BYTE, 0);                /* HT rates: none                                     */
+   q = tlv(q, TAG_VHT_RATE_SET, 16);                  /* VHT rate set: zeros                                */
+   q += 16;
+   return wmi_send(WMI_TLV_PEER_ASSOC_CMDID, (USHORT)(q - p));
+}
+
+/* key == NULL: delete (cipher none). CCMP: 16-byte key, no separate MIC. */
+int wmi_install_key(UCHAR FAR *addr, UCHAR idx, USHORT group, UCHAR FAR *key, USHORT klen)
+{
+   UCHAR FAR *p = wmi_begin(), FAR *c, FAR *q;
+   USHORT i, kl4 = (USHORT)((klen + 3) & ~3);
+
+   if (!p)
+      return -1;
+   c = tlv(p, TAG_VDEV_INSTALL_KEY_CMD, 92);
+   p32(c + 0, 0UL);                                   /* vdev_id                                            */
+   put_mac(c + 4, addr);
+   p32(c + 12, (ULONG)idx);
+   p32(c + 16, group ? (ULONG)WMI_KEY_GROUP : (ULONG)WMI_KEY_PAIRWISE);
+   p32(c + 20, key ? (ULONG)WMI_TLV_CIPHER_AES_CCM : (ULONG)WMI_TLV_CIPHER_NONE);
+   /* rsc / global rsc / tsc / wpi counters: zero */
+   p32(c + 80, key ? (ULONG)klen : 0UL);
+   /* txmic / rxmic lengths zero for CCMP */
+   q = tlv(c + 92, TAG_ARRAY_BYTE, key ? kl4 : 0);
+   if (key) {
+      for (i = 0; i < klen; i++)
+         q[i] = key[i];
+      q += kl4;
+   }
+   return wmi_send(WMI_TLV_VDEV_INSTALL_KEY_CMDID, (USHORT)(q - p));
+}
+
+/* Management frame through WMI (the firmware advertises WMI_SERVICE_MGMT_TX_WMI): the frame goes both inline and by
+ * DMA address, as ath10k does. */
+static DMA    g_mgmt_buf;
+static ULONG  g_mgmt_desc;
+
+int wmi_mgmt_tx(UCHAR FAR *frame, USHORT len)
+{
+   UCHAR FAR *p, FAR *c, FAR *q;
+   USHORT bl = (USHORT)((len + 3) & ~3);
+
+   if (len > 400)
+      return -3;
+   if (!g_mgmt_buf.phys && dma_get(512, &g_mgmt_buf))
+      return -4;
+   rt_movmem(DPTR(g_mgmt_buf), frame, len);
+   p = wmi_begin();
+   if (!p)
+      return -1;
+   c = tlv(p, TAG_MGMT_TX_CMD, 28);
+   p32(c + 0, 0UL);                                   /* vdev_id                                            */
+   p32(c + 4, ++g_mgmt_desc);                         /* desc_id                                            */
+   p32(c + 8, 0UL);                                   /* chanfreq: current channel                          */
+   p32(c + 12, g_mgmt_buf.phys);                      /* paddr (64 bit)                                     */
+   p32(c + 16, 0UL);
+   p32(c + 20, (ULONG)len);                           /* frame_len                                          */
+   p32(c + 24, (ULONG)bl);                            /* buf_len                                            */
+   q = tlv(c + 28, TAG_ARRAY_BYTE, bl);
+   rt_movmem(q, frame, len);
+   q += bl;
+   return wmi_send(WMI_TLV_MGMT_TX_CMDID, (USHORT)(q - p));
 }

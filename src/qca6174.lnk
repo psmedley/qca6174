@@ -21,6 +21,7 @@ file ath_ce.obj
 file ath_boot.obj
 file ath_htc.obj
 file ath_wmi.obj
+file ath_htt.obj
 file ath_sta.obj
 file qc_ndis.obj
 file qc_nic.obj

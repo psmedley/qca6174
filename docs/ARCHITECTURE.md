@@ -113,19 +113,63 @@ Each is marked in the code.
    `variant=` from SMBIOS; not done here. If no entry matches, the status text shows the name that was
    looked for.
 
-## Phase 2
+## 8. Phase 2: join, keys and data
 
-The join and data path, in the order ath10k does it for a station (mac.c, wmi-tlv.c, htt_tx.c, htt_rx.c):
+ath10k leaves the 802.11 state machine to mac80211. This driver has no mac80211, so `ath_sta.c` does what
+mac80211 does for a station, in the order ath10k's `mac.c` drives the firmware:
 
-1. **HTT setup**: version request, RX ring configuration (`HTT_H2T_MSG_TYPE_RX_RING_CFG`: a ring of 1920-byte
-   receive buffers in DMA memory and an "alloc index" word), refill. Set WMI `rx_decap_mode` to native WiFi
-   (as now) or try Ethernet decap to avoid 802.11 <-> 802.3 conversion in the driver.
-2. **Join**: `WMI_VDEV_START_REQUEST` on the AP's channel, `WMI_PEER_CREATE` for the BSSID, authentication and
-   association frames (management TX over WMI or HTT, per the firmware's services), then `WMI_PEER_ASSOC`
-   (rates, HT/VHT capabilities) and `WMI_VDEV_UP` (AID, BSSID).
-3. **Keys**: `WMI_VDEV_INSTALL_KEY` (pairwise and group CCMP) from `OID_802_11_ADD_KEY`, then the peer
-   `AUTHORIZE` parameter. EAPOL frames go to the supplicant through the private OIDs `0C`/`0D`, and its
-   replies are sent with `0E` (as in the RTL driver).
-4. **Data**: HTT TX descriptors + fragment lists on CE4 (with a larger host ring), TX completions; HTT RX
-   indications on CE1 -> 802.3 frames -> `ndis_rx_put()`.
-5. A send lock for copy-engine source rings, so that NDIS TransmitChain can run beside the request path.
+1. **vdev start** on the AP's channel (`WMI_VDEV_START_REQUEST`, legacy 20 MHz mode), wait for the response event.
+2. **peer create** for the BSSID (the HTT PEER_MAP event confirms it; a missing event is logged and ignored).
+3. **authentication** (open system) and **association request** built by the driver and sent as management frames
+   with `WMI_MGMT_TX`; the answers arrive as `WMI_MGMT_RX` events (`sta_mgmt_rx`). Three attempts each.
+   The request carries a fixed RSN element (WPA2-PSK / CCMP) for a secure network.
+4. **peer assoc** (`WMI_PEER_ASSOC`: AID, capabilities, the AP's legacy rates; no HT/VHT) and **vdev up**.
+5. **keys**: `OID_802_11_ADD_KEY` becomes `WMI_VDEV_INSTALL_KEY` (CCMP; pairwise on the BSSID, group by index);
+   after the pairwise key the peer is authorized (`WMI_PEER_AUTHORIZE`). On an open network the peer is authorized
+   at once.
+6. **leave**: deauthentication frame, vdev down, peer delete, vdev stop.
+
+The join runs inside the GenMAC request (`OID_802_11_SSID`); the supplicant's re-join trick of the RTL driver
+(leave, then join from a request 1.5 s later) is kept because the supplicant only notices an association when the
+BSSID it polls changes. A deauthentication, a disassociation or a firmware kick-out sets `g_link_lost`; the next
+request cleans up (`sta_poll`).
+
+### Data path (`ath_htt.c`)
+
+* **Setup**: HTT version request/confirmation, RX ring configuration, aggregation limits. Requires the firmware
+  service `RX_FULL_REORDER` (QCA6174 firmware has it); the legacy RX_IND path is not implemented and the bring-up
+  stops with a message if the service is missing.
+* **Receive**: a ring of 128 slots with 62 buffers of 2 KB (two 64 KB DMA chunks). The firmware reports filled
+  buffers, in order, in `RX_IN_ORD_PADDR_IND`. Each buffer = 300-byte rx descriptor (layout computed from the
+  ath10k structs with gcc: attention at 4, msdu_start at 24, rx_hdr_status at 236, payload at 300) + the MSDU as an
+  802.11 "native wifi" frame. `rx_msdu` checks the attention flags, strips the 802.11 header (24/26/30/32 bytes,
+  rounded up to 4 unless the firmware feature `NO_NWIFI_DECAP_4ADDR_PADDING` is set) and the LLC/SNAP header, and
+  hands an Ethernet frame to `sta_rx_eth`. EAPOL (0x888E) goes to a four-frame queue read by the supplicant
+  (`OID 0xFFFFFF0C/0D`), everything else to NDIS (`ndis_rx_put`, delivered from the context hook).
+* **Transmit**: `htt_tx_eth` builds the 802.11 data frame (To-DS, LLC/SNAP; Protected bit once the pairwise key
+  is in) in one of 24 slots and queues two chained copy-engine entries on CE4. EAPOL frames go out unprotected
+  with NO_ENCRYPT. Completions (`TX_COMPL_IND`) free the slot; a slot whose completion never comes is reclaimed
+  after 3 s.
+
+## 9. Open questions - to check on hardware (phase 2)
+
+These are the places where the code follows ath10k from reading it, with nothing to test it against yet.
+
+1. **HTT RX ring start index.** `fw_idx_init_val` is set to the alloc index after the first refill, as ath10k
+   does (the doc comment in ath10k's `htt.h` describes the alloc index as the position the host has filled up to).
+   If the firmware never reports a buffer, look at `RXIND=` in the status text and at this first.
+2. **RX descriptor layout** is computed for `htt_rx_desc_v1`; the offsets the driver sends in the ring
+   configuration and the ones it reads must agree with the firmware (`RXDROP=` counts frames rejected for a
+   missing MSDU_DONE flag, errors, or an unknown buffer address).
+3. **Management frames over WMI.** The command carries the frame inline and by DMA address, as ath10k does. If
+   `JFAIL=2` (no authentication reply) appears on every network, check that the firmware advertises
+   `MGMT_TX_WMI` (`MGMTWMI=1`) and look for `WMI_MGMT_TX_COMPLETION` events.
+4. **vdev start details.** Beacon interval and DTIM are taken from the beacon; the channel is sent as a legacy
+   20 MHz channel. ath10k also sets a number of vdev and peer parameters (RTS threshold, power save, kick-out
+   timers) that are not set here; the firmware defaults are assumed.
+5. **The hardware RX filter workaround** ath10k does at start-up for this chip (create and delete a dummy vdev so
+   that `MAC_PCU_ADDR1_MASK` is set) is not done. Symptom if it matters: the card ACKs frames for other stations.
+6. **Throughput.** Legacy rates only (no HT/VHT, no aggregation requests from our side), 20 MHz. The AP's
+   aggregation towards us is handled by the firmware's reorder.
+7. **No WPA3, WPA1, TKIP, WEP, 802.11w, PMKID caching.** WPA2-PSK/CCMP and open networks only, like the RTL
+   drivers.

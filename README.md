@@ -12,9 +12,10 @@ plumbing it reuses:
 The chip side is a port of the Linux **ath10k** driver (PCI bus, copy engines, BMI, HTC, WMI-TLV). It is a
 16-bit physical device driver built with Open Watcom 2.0 and NASM; no IBM DDK is needed.
 
-> **Status: phase 1, untested on hardware.** The code builds (cross-built on Linux) but has not yet been
-> run on a machine with a QCA6174. Read [docs/TESTING.md](docs/TESTING.md) before trying it, and expect to
-> need a COM1 cable or a VM serial port.
+> **Status: phase 1 and phase 2 written, untested on hardware.** The code builds (cross-built on Linux, and
+> built on OS/2) but has not yet been run on a machine with a QCA6174. Read [docs/TESTING.md](docs/TESTING.md)
+> before trying it. A COM1 cable or a VM serial port helps but is not required: the state can be read from
+> `\DEV\WRND32$`.
 
 ## What phase 1 is meant to do
 
@@ -27,10 +28,12 @@ The chip side is a port of the Linux **ath10k** driver (PCI bus, copy engines, B
 | HTC: wait for READY, connect HTT and WMI services | `ath_htc.c` | written |
 | WMI-TLV: service ready, host memory for the firmware, INIT, READY (MAC address), regdomain, channel list, station vdev | `ath_wmi.c` | written |
 | Scan (2.4 GHz and 5 GHz), BSS list to the Wireless LAN Monitor | `ath_wmi.c`, `ath_sta.c`, `qc_nic.c` | written |
-| Join, WPA2 keys, EAPOL, data (HTT TX/RX) | - | **phase 2**, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#phase-2) |
+| Join: vdev, peer, open authentication, association, peer assoc, vdev up | `ath_sta.c`, `ath_wmi.c` | written (phase 2) |
+| WPA2-PSK: EAPOL queue to the supplicant, CCMP keys, peer authorize | `ath_sta.c`, `qc_nic.c` | written (phase 2) |
+| Data: HTT version/ring setup, in-order RX, native-wifi to Ethernet, TX descriptors on CE4 | `ath_htt.c` | written (phase 2) |
 
-In phase 1 a join request (`OID_802_11_SSID`) fails with `NDIS_STATUS_FAILURE` and transmitted frames are
-dropped and counted, so the Wireless LAN Monitor shows networks but cannot connect.
+Not done: HT/VHT rates (legacy rates only), WPA3/WPA1/TKIP/WEP, power save, roaming, AP mode. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) sections 8 and 9.
 
 ## Install (for testing)
 

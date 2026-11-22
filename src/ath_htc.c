@@ -201,8 +201,12 @@ static void service_once(void)
 
       if (!c->src_n || !c->nbuf)
          continue;
-      while ((idx = ce_send_done(ce)) != 0)
-         c->bfree[c->dctx[idx - 1]] = 1;
+      while ((idx = ce_send_done(ce)) != 0) {
+         UCHAR b = c->dctx[idx - 1];
+
+         if (b < c->nbuf)                       /* HTT data entries carry no control slot (0xFF)            */
+            c->bfree[b] = 1;
+      }
    }
    /* received messages */
    for (ce = 1; ce <= 2; ce++) {

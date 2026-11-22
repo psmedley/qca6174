@@ -92,6 +92,18 @@ static void run_cmd(void)
       if (!g_hw_ready) { g_hw_failed = 0; ath_up(); }
    } else if (c[0] == 's' && c[1] == 'c') {
       if (g_hw_ready) wmi_scan();
+   } else if (c[0] == 'j' && c[1] == 'o') {                  /* "join <ssid>": an UNENCRYPTED network, from the scan table */
+      if (g_hw_ready) {
+         char *q = c + 2;
+         UCHAR n = 0;
+
+         while (*q == ' ') q++;
+         while (q[n] && n < 32) n++;
+         sta_set_want((UCHAR FAR *)q, n, 1);
+         tstr("[join rc "); th16((USHORT)(sta_join(0, 1) & 0xFFFF)); tstr(" fail "); th16(g_jfail); tcom(']'); tnl();
+      }
+   } else if (c[0] == 'l' && c[1] == 'e') {
+      if (g_hw_ready) sta_leave();
    } else if (c[0] == 'r' && c[1] == ' ') {
       if (bar_map() == 0) {
          ULONG a = hexval(c + 2);
@@ -194,7 +206,7 @@ void qc_dev_write(USHORT sfn, ULONG phys, USHORT n)
 }
 
 /* ---- status text ----------------------------------------------------------------------------------- */
-static char   g_txt[900];
+static char   g_txt[1500];
 static USHORT g_tn;
 
 static void ps(const char *s) { while (*s && g_tn < sizeof(g_txt) - 1) g_txt[g_tn++] = *s++; }
@@ -241,6 +253,14 @@ static void build_status(void)
    ps(" HOOK="); ph(g_hook_runs, 4); ps(" SVC="); ph(g_svc_runs, 4); ps(" WMIEV="); ph(g_wmi_events, 4);
    ps(" MGMTRX="); ph(g_mgmt_rx, 4); ps(" HTCDROP="); ph(g_htc_drops, 4); nl();
    ps("LASTERR="); ps(g_last_err_txt); ps(" "); ph(g_last_err, 8); nl();
+   ps("LINK="); ps(g_joined ? "JOINED " : "none "); ph(g_jch, 2); ps(" AID="); ph(g_jaid, 4);
+   ps(" JFAIL="); ph(g_jfail, 2); ps(" AUTH="); ph(g_auth_status, 4); ps(" ASSOC="); ph(g_assoc_status, 4);
+   ps(g_open_net ? " OPEN" : " RSN"); ps(g_ptk_on ? " PTK" : " nokey"); ps(g_authorized ? " AUTHORIZED" : ""); nl();
+   ps("HTT="); ps(g_htt_ready ? "ready" : "down"); ps(" RXIND="); ph(g_htt_rxind, 4); ps(" RXFRM="); ph(g_htt_rxfrm, 4);
+   ps(" RXDROP="); ph(g_htt_rxdrop, 4); ps(" TXOK="); ph(g_htt_txok, 4); ps(" TXCOMPL="); ph(g_htt_txcompl, 4);
+   ps(" TXFAIL="); ph(g_htt_txfail, 4); ps(" TXFULL="); ph(g_htt_txfull, 4); nl();
+   ps("EAPOL="); ph(sta_eapol_count(), 2); ps(" FWREORDER="); ph(g_svc_full_reorder, 1);
+   ps(" MGMTWMI="); ph(g_svc_mgmt_tx_wmi, 1); nl();
    for (i = 0; i < g_nnet; i++) {
       ps("NET="); ph(g_net[i].ch, 2); ps(" ");
       ph((ULONG)(UCHAR)g_net[i].rssi, 2); ps(" ");

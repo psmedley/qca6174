@@ -358,7 +358,7 @@ WORD __cdecl ndis_c_transmit(WORD protID, WORD reqHandle, PTCBD pTCBufferD)
             gSST.trFrHW++;
             return NDIS_SUCCESS;
          }
-         s = scr_map(SCR_C, ph, k);
+         s = scr_map(SCR_TX, ph, k);
          if (s)
             rt_movmem((PVOID)(g + n), MAKEP(s, 0), k);
          rt_lock_release(&g_txsel_lock);

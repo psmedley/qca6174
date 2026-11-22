@@ -3,7 +3,7 @@
 # On OS/2 use build.cmd (same flags).
 CFLAGS = -bt=os2 -2 -obilmr -s -ze -zl -zq -zff -zgf -ms -wx -zp1 -zu -j
 ASM    = qc_hdr qc_lib qc_ndisx qc_end
-CSRC   = qc_strat qc_pci qc_mem qc_fw ath_ce ath_boot ath_htc ath_wmi ath_sta qc_ndis qc_nic qc_dbg
+CSRC   = qc_strat qc_pci qc_mem qc_fw ath_ce ath_boot ath_htc ath_wmi ath_htt ath_sta qc_ndis qc_nic qc_dbg
 OBJS   = $(addsuffix .obj,$(ASM) $(CSRC))
 HDRS   = qca.h qc_os2dd.h qc_ndis.h
 

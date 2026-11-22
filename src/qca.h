@@ -88,9 +88,11 @@ int    dma_get(USHORT size, DMA *d);     /* 8-byte aligned, zeroed; 0 = ok      
 USHORT dma_free_bytes(void);
 ULONG  dma_big(ULONG size);              /* a larger contiguous block for the firmware (no mapping); 0 = fail */
 USHORT scr_map(USHORT slot, ULONG phys, USHORT len);   /* scratch selector over phys, returns the selector */
-#define SCR_A 0
+#define SCR_A 0                          /* request path (nic_lock): firmware blobs, status text            */
 #define SCR_B 1
 #define SCR_C 2
+#define SCR_RX 3                         /* HTT receive buffers (service path, one CPU at a time)            */
+#define SCR_TX 4                         /* NDIS TransmitChain physical blocks (under g_txsel_lock)          */
 
 /* Firmware files, written to the device at run time ("copy /b file \DEV\WRND32$"). Kept as a list of
  * 64 KB physical blocks (they need not be contiguous: only the driver reads them). */
@@ -241,12 +243,40 @@ int    htc_tx_end(USHORT ep, USHORT slot, USHORT paylen);
 USHORT htc_credits(USHORT ep);
 void   ath_service(void);                    /* poll every copy engine (task time / context hook)         */
 int    ath_wait(USHORT *flag, USHORT ms);     /* service until *flag != 0 or timeout; 0 = flag set         */
+int    htc_map_service(USHORT svc, UCHAR *ul, UCHAR *dl);
 
 /* ---- WMI-TLV (ath_wmi.c) -------------------------------------------------------------------------- */
 extern USHORT g_wmi_svc_ready, g_wmi_ready, g_scan_done, g_scan_running;
+extern USHORT g_svc_full_reorder, g_svc_mgmt_tx_wmi;
 int    wmi_init_target(void);                 /* service ready -> INIT -> ready, regdomain, channels, vdev */
 int    wmi_scan(void);                        /* full active scan, results in g_net                       */
 void   wmi_rx(UCHAR FAR *p, USHORT len);
+/* station commands (all pointer arguments are far: callers may pass stack addresses) */
+int    wmi_vdev_start(UCHAR ch, USHORT bcn_intval, USHORT dtim);
+int    wmi_vdev_stop(void);
+int    wmi_vdev_up(USHORT aid, UCHAR FAR *bssid);
+int    wmi_vdev_down(void);
+int    wmi_peer_create(UCHAR FAR *addr);
+int    wmi_peer_delete(UCHAR FAR *addr);
+int    wmi_peer_assoc(UCHAR FAR *addr, USHORT aid, USHORT caps, USHORT listen, ULONG flags,
+                      UCHAR FAR *rates, USHORT nrates, USHORT phymode);
+int    wmi_peer_authorize(UCHAR FAR *addr);
+int    wmi_install_key(UCHAR FAR *addr, UCHAR idx, USHORT group, UCHAR FAR *key, USHORT klen);
+int    wmi_mgmt_tx(UCHAR FAR *frame, USHORT len);
+/* event results the join code waits for */
+extern USHORT g_vdev_start_done, g_vdev_start_status, g_vdev_stopped, g_peer_map, g_sec_ind;
+extern UCHAR  g_peer_map_addr[6];
+extern USHORT g_auth_rx, g_auth_status, g_assoc_rx, g_assoc_status, g_assoc_aid, g_link_lost;
+extern USHORT g_assoc_caps, g_assoc_reslen;
+extern UCHAR  g_assoc_res[128];
+
+/* ---- HTT (ath_htt.c) ----------------------------------------------------------------------------- */
+extern USHORT g_htt_ready;
+extern USHORT g_htt_txok, g_htt_txfail, g_htt_txfull, g_htt_rxfrm, g_htt_rxdrop, g_htt_rxind, g_htt_txcompl;
+int    htt_setup(void);                       /* version, rx ring, aggregation limits                      */
+void   htt_reset(void);
+void   htt_rx(UCHAR FAR *p, USHORT len);      /* every message of the HTT endpoint                          */
+int    htt_tx_eth(UCHAR FAR *eth, USHORT len, USHORT noenc);  /* 0 = queued, -1 = not connected, -2 = busy */
 
 /* ---- station state and scan table (ath_sta.c) ----------------------------------------------------- */
 #define NET_MAX         20
@@ -264,10 +294,27 @@ typedef struct {
 } net_t;
 extern net_t  g_net[NET_MAX];
 extern USHORT g_nnet;
-extern USHORT g_joined;
+extern USHORT g_joined, g_authorized, g_ptk_on, g_open_net;
 extern UCHAR  g_jbssid[6], g_jssid[32], g_jslen, g_jch;
+extern USHORT g_jfail;                        /* reason of the last failed join (see ARCHITECTURE.md)        */
+extern UCHAR  g_jreq[160], g_jres[128];
+extern USHORT g_jreqlen, g_jreslen, g_jcaps, g_jaid;
 void   sta_beacon(UCHAR FAR *frame, USHORT len, USHORT chan, short rssi);
 void   sta_scan_clear(void);
+void   sta_age(void);                         /* drop scan entries not heard for 30 s                        */
+void   sta_set_want(UCHAR FAR *ssid, UCHAR len, USHORT open);
+int    sta_join(UCHAR FAR *want_bssid, USHORT any_bssid);   /* 0 = associated                              */
+void   sta_leave(void);
+void   sta_poll(void);                        /* request path: notice a lost link                          */
+short  sta_rssi(void);
+int    sta_key_add(UCHAR FAR *key, USHORT klen, USHORT pairwise, UCHAR idx);
+int    sta_key_remove(USHORT pairwise, UCHAR idx);
+void   sta_mgmt_rx(UCHAR FAR *frame, USHORT len);          /* auth / assoc response / deauth / disassoc    */
+int    sta_tx(UCHAR FAR *eth, USHORT len);    /* NDIS data: 0 = queued, -1 = no link, -2 = busy              */
+int    sta_eapol_tx(UCHAR FAR *eth, USHORT len);
+void   sta_rx_eth(UCHAR FAR *eth, USHORT len);            /* HTT: a received frame as Ethernet             */
+USHORT sta_eapol_count(void);
+USHORT sta_eapol_get(UCHAR FAR *dst, USHORT max);
 
 /* ---- NDIS and GenMAC (qc_ndis.c, qc_nic.c) -------------------------------------------------------- */
 extern USHORT g_lannum;

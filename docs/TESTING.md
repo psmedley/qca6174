@@ -58,3 +58,29 @@ network. Then start the Wireless LAN Monitor: it should list the same networks.
 
 `IRQS=` should grow while the adapter is up; `SPUR=` counts interrupts on a shared line that were not ours.
 `IRQS=0` with networks found means the driver is running polled (see ARCHITECTURE.md, open question 1).
+
+## 6. Join an open network (phase 2, no supplicant)
+
+On a test access point with encryption off:
+
+```
+echo scan > \DEV\WRND32$
+echo join MyOpenNetwork > \DEV\WRND32$
+copy \DEV\WRND32$ con
+```
+
+COM1 shows `[join rc 0000 fail 0000]` and `[joined aid nnnn]`. The status text has `LINK=JOINED ... OPEN
+AUTHORIZED`. `JFAIL`: 1 SSID not in the scan table, 2 no authentication reply, 3 authentication refused,
+4 no association reply, 5 association refused (`ASSOC=` is the status code), 6 wrong security mode,
+9 vdev start failed, 10 a command could not be sent. `echo leave > \DEV\WRND32$` disconnects.
+
+With the NDIS interface up (`lanN` configured as for the RTL driver, a static address is simplest), `ping` the
+access point. `HTT=ready`, `RXIND` (receive indications), `RXFRM`, `TXOK` and `TXCOMPL` should all grow; `RXDROP`
+and `TXFULL` should stay small.
+
+## 7. WPA2-PSK through the Wireless LAN Monitor
+
+Create a profile as for the RTL driver and connect. `EAPOL=` shows queued handshake frames (normally 0 again once
+the supplicant has read them); after the handshake the status shows `PTK AUTHORIZED`. Failures before that point
+are visible as `JFAIL`; a handshake that never completes with `RXFRM` stuck at 0 points at the receive ring
+(ARCHITECTURE.md section 9, question 1).
