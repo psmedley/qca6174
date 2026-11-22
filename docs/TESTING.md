@@ -84,3 +84,30 @@ Create a profile as for the RTL driver and connect. `EAPOL=` shows queued handsh
 the supplicant has read them); after the handshake the status shows `PTK AUTHORIZED`. Failures before that point
 are visible as `JFAIL`; a handshake that never completes with `RXFRM` stuck at 0 points at the receive ring
 (ARCHITECTURE.md section 9, question 1).
+
+## 8. The boot hangs and there is no serial port
+
+The driver can report how far INIT got by beeping, and can stop INIT early so the boot gets past the hang.
+
+**Beeps.** Add `/B` to the `DEVICE=` line: `DEVICE=C:\IBMCOM\MACS\QCA6174.OS2 /B`. At each step the driver sounds
+that many short beeps (1 kHz) and then pauses; count the LAST group before the machine stops:
+
+| beeps | step reached |
+|---|---|
+| 1 | INIT entered, arguments read |
+| 2 | DMA memory and GDT selectors allocated |
+| 3 | PCI scan done (the card was found) |
+| 4 | the 32 windows over BAR0 mapped |
+| 5 | NDIS MAC registered with the Protocol Manager |
+| 6 | PROTOCOL.INI read |
+| 7 | INIT finished |
+| 8 / 9 | INIT COMPLETE entered / finished |
+
+The hang is in the code that follows the last step you heard (for example 3 beeps and then silence: the BAR0
+mapping). No beep at all means the driver never reached its INIT (a problem with loading the module itself).
+The same step numbers are written to COM1 as `[S3]`. The beeps need a working PC speaker; some laptops mute it.
+
+**Stop early.** `/S1` ... `/S9` end INIT successfully right after that step and skip the rest, so the boot
+continues: `DEVICE=C:\IBMCOM\MACS\QCA6174.OS2 /S3` does the first three steps only. The smallest n for which the
+boot hangs again shows the step that hangs (`/S1` should boot; if even that hangs, it is the module or its
+header). Combine with `/B` to hear the steps.

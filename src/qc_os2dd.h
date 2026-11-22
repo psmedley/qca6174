@@ -176,5 +176,6 @@ extern void   __cdecl qc_dh_unsetirq(USHORT irq);
 extern void   __cdecl qc_dh_eoi(USHORT irq);
 extern USHORT __cdecl qc_irq_offset(void);
 extern USHORT __cdecl qc_dh_free_phys(ULONG phys);                      /* 0 = ok                           */
+extern void   __cdecl qc_speaker(USHORT on);                            /* boot diagnostics                 */
 
 #endif
