@@ -344,6 +344,11 @@ WORD __cdecl ndis_c_genreq(WORD protID, WORD reqHandle, WORD param1, DWORD param
 
 /* Gather the chain into one Ethernet frame and hand it to the station. The data is copied before the
  * call returns, so SUCCESS (no TransmitConfirm) is the right answer. */
+/* Why TransmitChain did not send (status text NDIS): 0 adapter not open, 1 not connected, 2 no transmit buffer, 3 too
+ * big, 4 physical block mapping busy, 5 sta_tx refused (no link / no keys), 6 sta_tx busy, 7 queued */
+USHORT g_tx_calls, g_tx_why[8], g_tx_last_len, g_tx_last_et;
+int    g_tx_last_rc;
+
 WORD __cdecl ndis_c_transmit(WORD protID, WORD reqHandle, PTCBD pTCBufferD)
 {
    USHORT n = 0, i, k, fl;
@@ -351,21 +356,25 @@ WORD __cdecl ndis_c_transmit(WORD protID, WORD reqHandle, PTCBD pTCBufferD)
    int    r;
 
    (void)protID; (void)reqHandle;
-   if (!(gSST.status & SSTATUS_OPEN))
+   g_tx_calls++;
+   if (!(gSST.status & SSTATUS_OPEN)) {
+      g_tx_why[0]++;
       return NDIS_INVALID_FUNCTION;
+   }
    if (!g_joined || !g_txbuf.phys) {
+      g_tx_why[g_joined ? 2 : 1]++;
       gSST.trFrHW++;                             /* no connection: the frame is lost (TCP/IP retries later)  */
       return NDIS_SUCCESS;
    }
    g = DPTR(g_txbuf);
    if (pTCBufferD->immedLen) {
-      if (pTCBufferD->immedLen > MAX_FRAME_SIZE) { gSST.trFrHW++; return NDIS_SUCCESS; }
+      if (pTCBufferD->immedLen > MAX_FRAME_SIZE) { g_tx_why[3]++; gSST.trFrHW++; return NDIS_SUCCESS; }
       rt_movmem((PVOID)g, (PVOID)pTCBufferD->pImmed, pTCBufferD->immedLen);
       n = pTCBufferD->immedLen;
    }
    for (i = 0; i < pTCBufferD->dbCount && i < MAX_DATA_BLOCK_COUNT; i++) {
       k = pTCBufferD->db[i].dataLen;
-      if ((USHORT)(n + k) > MAX_FRAME_SIZE || (USHORT)(n + k) < n) { gSST.trFrHW++; return NDIS_SUCCESS; }
+      if ((USHORT)(n + k) > MAX_FRAME_SIZE || (USHORT)(n + k) < n) { g_tx_why[3]++; gSST.trFrHW++; return NDIS_SUCCESS; }
       if (pTCBufferD->db[i].ptrType == 0) {      /* physical address                                        */
          ULONG ph = *(ULONG FAR *)&pTCBufferD->db[i].pData;
          USHORT s;
@@ -373,6 +382,7 @@ WORD __cdecl ndis_c_transmit(WORD protID, WORD reqHandle, PTCBD pTCBufferD)
          fl = rt_irq_save();
          if (rt_lock_acquire(&g_txsel_lock, (USHORT)(rt_cpu_id() + 1))) {
             rt_irq_restore(fl);
+            g_tx_why[4]++;
             gSST.trFrHW++;
             return NDIS_SUCCESS;
          }
@@ -387,15 +397,22 @@ WORD __cdecl ndis_c_transmit(WORD protID, WORD reqHandle, PTCBD pTCBufferD)
       n = (USHORT)(n + k);
    }
    r = sta_tx(g, n);
+   g_tx_last_rc = r;
+   g_tx_last_len = n;
+   g_tx_last_et = (USHORT)((g[12] << 8) | g[13]);
    if (r == 0) {
+      g_tx_why[7]++;
       gSST.trFrames++;
       gSST.trBytes += n;
       if (g[0] & STATION_ADDR_MC)
          gSST.trBCFrames++;
       return NDIS_SUCCESS;
    }
-   if (r == -2)
+   if (r == -2) {
+      g_tx_why[6]++;
       return NDIS_OUT_OF_RESOURCE;
+   }
+   g_tx_why[5]++;
    gSST.trFrHW++;
    return NDIS_SUCCESS;
 }
@@ -540,4 +557,24 @@ void ndis_find_lan(void)
       pi_line(g_pl);
    }
    DosClose(h);
+}
+
+/* For the status text */
+USHORT ndis_state(USHORT what)
+{
+   USHORT i, n = 0;
+
+   switch (what) {
+   case 0:  return (USHORT)gSST.status;
+   case 1:  return gSST.filter;
+   case 2:  return (USHORT)gSST.trFrames;
+   case 3:  return (USHORT)gSST.trFrHW;
+   case 4:  return (USHORT)gSST.recFrames;
+   case 5:  return (USHORT)gSST.recFrNoBuff;
+   case 6:  for (i = 0; i < RXP_N; i++) if (g_rxp_busy[i] != 2) n++;
+            return n;                                  /* receive buffers that exist                             */
+   case 7:  return (USHORT)(g_txbuf.phys != 0UL);
+   case 8:  return g_ndis_reg;
+   }
+   return 0;
 }

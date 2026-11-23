@@ -233,7 +233,9 @@ static void ph(ULONG v, USHORT digits)
 static void nl(void) { ps("\r\n"); }
 
 extern USHORT g_wmi_events, g_mgmt_rx, g_htc_drops, g_svc_runs, g_hook_runs;
-extern USHORT g_rx_why[8];
+extern USHORT g_rx_why[8], g_tx_calls, g_tx_why[8], g_tx_last_len, g_tx_last_et;
+extern int    g_tx_last_rc;
+USHORT ndis_state(USHORT what);
 extern UCHAR  g_rx_decap_last, g_rx_fc_last;
 extern ULONG  g_rx_attn_last;
 extern ULONG  g_oidlog[], g_oidlog_st[];
@@ -293,6 +295,12 @@ static void build_status(void)
    ps("RXWHY=");
    for (i = 0; i < 8; i++) { ph(g_rx_why[i], 4); ps(i < 7 ? "," : ""); }
    ps(" LAST decap="); ph(g_rx_decap_last, 2); ps(" fc0="); ph(g_rx_fc_last, 2); ps(" attn="); ph(g_rx_attn_last, 8); nl();
+   ps("NDIS reg="); ph(ndis_state(8), 1); ps(" status="); ph(ndis_state(0), 4); ps(" filter="); ph(ndis_state(1), 4);
+   ps(" rxbufs="); ph(ndis_state(6), 2); ps(" txbuf="); ph(ndis_state(7), 1); ps(" tx="); ph(ndis_state(2), 4);
+   ps(" txhw="); ph(ndis_state(3), 4); ps(" rx="); ph(ndis_state(4), 4); ps(" nobuf="); ph(ndis_state(5), 4); nl();
+   ps("TXCALLS="); ph(g_tx_calls, 4); ps(" WHY(open,link,buf,big,map,refused,busy,ok)=");
+   for (i = 0; i < 8; i++) { ph(g_tx_why[i], 4); ps(i < 7 ? "," : ""); }
+   ps(" LAST len="); ph(g_tx_last_len, 4); ps(" type="); ph(g_tx_last_et, 4); ps(" rc="); ph((USHORT)g_tx_last_rc, 4); nl();
    ps("EAPOL="); ph(sta_eapol_count(), 2); ps(" FWREORDER="); ph(g_svc_full_reorder, 1);
    ps(" MGMTWMI="); ph(g_svc_mgmt_tx_wmi, 1); ps(" MGMT="); ps((g_svc_mgmt_tx_wmi || fw_feature(2)) ? "wmi" : "htt");
    ps(" FEAT=");
