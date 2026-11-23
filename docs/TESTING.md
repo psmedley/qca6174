@@ -164,3 +164,8 @@ The monitor finds a GenMAC adapter through `PROTOCOL.INI` and the NIF file, then
 TCP/IP copies the adapter MAC when it binds at boot, before the firmware is up. Without
 `NETADDRESS = "xxxxxxxxxxxx"` under `[QCA6174_NIF]` in PROTOCOL.INI the stack uses 00:00:00:00:00:00 and
 neither ARP nor ping work. The status text shows `MAC=` (in use) and `FWMAC=` (chip); use the `FWMAC` value.
+
+The adapter now starts automatically when the second firmware file is copied. If the firmware copy runs
+before the network is bound (STARTUP.CMD before NETBIND), `NETADDRESS` is no longer needed; the status text
+says `(firmware)` next to `MAC=` and `ndis_set_mac` hands the chip's address to the stack. If the stack still
+binds first, keep `NETADDRESS`.

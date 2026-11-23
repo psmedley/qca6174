@@ -146,6 +146,9 @@ void qc_dev_close(USHORT sfn)
       th32(b->len);
       tstr(g_wr_err ? " FAILED]" : " loaded]");
       tnl();
+      /* Both files are in: start the chip now, so the real MAC is known before the protocol binds. */
+      if (!g_wr_err && !g_hw_ready && !g_hw_failed && g_fwblob.done && g_bdblob.done)
+         ath_up();
    } else if (g_wr_kind == K_TEXT && g_cmdn) {
       g_cmd[g_cmdn] = 0;
       run_cmd();
