@@ -125,10 +125,12 @@ USHORT ndis_init(void)
       if (dma_get(RXP_SIZE, &g_rxp[i]))
          g_rxp_busy[i] = 2;                 /* not available                                               */
    dma_get(MAX_FRAME_SIZE + 64, &g_txbuf);
+   qc_step(11);                                /* boot diagnostics: the DMA buffers are allocated and cleared */
 
    rc = DosOpen((PSZ)pmname, &hPM, &action, 0L, 0,
                 OPEN_ACTION_OPEN_IF_EXISTS,
                 OPEN_FLAGS_NOINHERIT | OPEN_SHARE_DENYREADWRITE | OPEN_ACCESS_READONLY, 0L);
+   qc_step(12);                                /* boot diagnostics: DosOpen of PROTMAN$ returned              */
    if (rc != 0 || action != FILE_EXISTED)
       return 1;
    rb.opcode   = PM_OP_REGISTER_MODULE;

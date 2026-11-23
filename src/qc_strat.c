@@ -29,13 +29,22 @@ static USHORT g_opt_v, g_opt_q, g_opt_w, g_opt_bad, g_opt_b, g_opt_stop;
  *   1 arguments read          4 BAR0 windows mapped            8 INIT COMPLETE entered
  *   2 DMA memory and selectors 5 NDIS MAC registered           9 INIT COMPLETE done
  *   3 PCI scan                6 PROTOCOL.INI read; 7 INIT done */
-static void qc_step(USHORT n)
+void qc_step(USHORT n)
 {
    USHORT i;
 
-   tcom_always('['); tcom_always('S'); tcom_always((char)('0' + n)); tcom_always(']');
+   tcom_always('['); tcom_always('S'); tcom_always((char)('0' + n / 10)); tcom_always((char)('0' + n % 10));
+   tcom_always(']');
    if (!g_opt_b)
       return;
+   if (n >= 10) {                                    /* sub-steps: one LONG beep, then (n - 10) short ones      */
+      qc_speaker(1);
+      for (i = 0; i < 6; i++)
+         qc_iodelay(60000);
+      qc_speaker(0);
+      qc_iodelay(60000);
+      n = (USHORT)(n - 10);
+   }
    for (i = 0; i < n; i++) {
       qc_speaker(1);
       qc_iodelay(50000);

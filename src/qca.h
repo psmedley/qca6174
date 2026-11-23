@@ -45,6 +45,8 @@ void   qc_err(const char *what, ULONG v);    /* "QCA6174: <what> <v>" on COM1, r
 extern ULONG g_last_err;
 extern char *g_last_err_txt;
 
+void   qc_step(USHORT n);                  /* boot diagnostics: n beeps with /B (qc_strat.c)                 */
+
 /* ---- time (qc_strat.c) --------------------------------------------------------------------------- */
 ULONG  qc_ms(void);                     /* ms since boot (global info segment)                            */
 void   qc_msleep(USHORT ms);            /* task time only: ProcBlock with a timeout                        */

@@ -256,6 +256,7 @@ _rt_dh_phys_to_gdt:
         mov     ax, [bp+6]
         mov     cx, [bp+8]
         mov     si, [bp+10]
+        xor     dh, dh                          ; DH = 0: read/write access (do not leave leftover bits there)
         mov     dl, 0x2E
         call    far [_rt_devhelp]
         jc      .bad

@@ -98,6 +98,8 @@ that many short beeps (1 kHz) and then pauses; count the LAST group before the m
 | 2 | DMA memory and GDT selectors allocated |
 | 3 | PCI scan done (the card was found) |
 | 4 | the 32 windows over BAR0 mapped |
+| long + 1 | inside step 5: the NDIS DMA buffers are allocated |
+| long + 2 | inside step 5: DosOpen of PROTMAN$ returned |
 | 5 | NDIS MAC registered with the Protocol Manager |
 | 6 | PROTOCOL.INI read |
 | 7 | INIT finished |
