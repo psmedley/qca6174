@@ -214,7 +214,7 @@ void qc_dev_write(USHORT sfn, ULONG phys, USHORT n)
 }
 
 /* ---- status text ----------------------------------------------------------------------------------- */
-static char   g_txt[2400];
+static char   g_txt[3200];
 static USHORT g_tn;
 
 static void ps(const char *s) { while (*s && g_tn < sizeof(g_txt) - 1) g_txt[g_tn++] = *s++; }
@@ -304,6 +304,8 @@ static void build_status(void)
    ps("NDIS reg="); ph(ndis_state(8), 1); ps(" status="); ph(ndis_state(0), 4); ps(" filter="); ph(ndis_state(1), 4);
    ps(" rxbufs="); ph(ndis_state(6), 2); ps(" txbuf="); ph(ndis_state(7), 1); ps(" tx="); ph(ndis_state(2), 4);
    ps(" txhw="); ph(ndis_state(3), 4); ps(" rx="); ph(ndis_state(4), 4); ps(" nobuf="); ph(ndis_state(5), 4); nl();
+   ps("NDISQ hi="); ph(ndis_state(9), 4); ps(" hooks="); ph(ndis_state(10), 4); ps(" dropbusy="); ph(ndis_state(11), 4);
+   ps(" dropoff="); ph(ndis_state(12), 4); nl();
    ps("TXCALLS="); ph(g_tx_calls, 4); ps(" WHY(open,link,buf,big,map,refused,busy,ok)=");
    for (i = 0; i < 8; i++) { ph(g_tx_why[i], 4); ps(i < 7 ? "," : ""); }
    ps(" LAST len="); ph(g_tx_last_len, 4); ps(" type="); ph(g_tx_last_et, 4); ps(" rc="); ph((USHORT)g_tx_last_rc, 4); nl();

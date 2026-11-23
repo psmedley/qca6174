@@ -105,7 +105,7 @@ static USHORT               g_ndis_reg;
 static USHORT               g_txsel_lock;
 
 /* ---- registration with the Protocol Manager (INIT time) -------------------------------------------- */
-#define RXP_N     16
+#define RXP_N     64
 #define RXP_SIZE  1520
 static DMA    g_rxp[RXP_N];                 /* receive buffers in DMA memory (far): DGROUP stays small     */
 static UCHAR  g_rxp_busy[RXP_N];
@@ -183,7 +183,7 @@ int ndis_set_mac(UCHAR *m)
 /* ---- receive ---------------------------------------------------------------------------------------- */
 static BYTE   g_indicate;
 static USHORT g_ind_off, g_ind_owner;
-USHORT        g_ind_drop_busy, g_ind_drop_off, g_ind_tmo, g_ind_reent;
+USHORT        g_ind_drop_busy, g_ind_drop_off, g_ind_tmo, g_ind_reent, g_q_hi, g_hook_n, g_hook_max;
 #define IND_WAIT_ROUNDS 16
 
 UCHAR FAR *ndis_rx_get(USHORT *handle)
@@ -259,6 +259,11 @@ static USHORT g_q_head, g_q_tail;
 
 void ndis_hook_deliver(void)
 {
+   USHORT depth = (USHORT)(g_q_head - g_q_tail);
+
+   g_hook_n++;
+   if (depth > g_q_hi)
+      g_q_hi = depth;                             /* deepest backlog seen when the hook ran                */
    while (g_q_tail != g_q_head) {
       USHORT i = (USHORT)(g_q_tail % RXP_N);
 
@@ -604,6 +609,10 @@ USHORT ndis_state(USHORT what)
             return n;                                  /* receive buffers that exist                             */
    case 7:  return (USHORT)(g_txbuf.phys != 0UL);
    case 8:  return g_ndis_reg;
+   case 9:  return g_q_hi;
+   case 10: return g_hook_n;
+   case 11: return g_ind_drop_busy;
+   case 12: return g_ind_drop_off;
    }
    return 0;
 }
