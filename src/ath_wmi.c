@@ -515,7 +515,7 @@ static int cmd_scan_chan_list(void)
    for (i = 0; i < NCHANS; i++) {
       UCHAR  c = g_chans[i];
       USHORT mhz = ch_mhz(c);
-      ULONG  fl = (c <= 14) ? (g_use_ht ? (5UL | 0x800UL) : (ULONG)MODE_11G) : (g_use_ht ? (4UL | 0x800UL) : (ULONG)MODE_11A);   /* HT20 (+ ALLOW_HT) or legacy */
+      ULONG  fl = (c <= 14) ? MODE_11G : MODE_11A;
       UCHAR FAR *w = tlv(q, TAG_CHANNEL, 24);         /* struct wmi_channel                              */
 
       fl |= WMI_CHAN_FLAG_ALLOW_HT;
@@ -642,7 +642,7 @@ int wmi_scan(void)
 static int put_channel(UCHAR FAR *w, UCHAR c)
 {
    USHORT mhz = ch_mhz(c);
-   ULONG  fl = (c <= 14) ? MODE_11G : MODE_11A;
+   ULONG  fl = (c <= 14) ? (g_use_ht ? (5UL | 0x800UL) : (ULONG)MODE_11G) : (g_use_ht ? (4UL | 0x800UL) : (ULONG)MODE_11A);
 
    p32(w + 0, (ULONG)mhz);
    p32(w + 4, (ULONG)mhz);
