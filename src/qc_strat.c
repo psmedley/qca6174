@@ -164,7 +164,7 @@ static void rt_init(RP_INIT FAR *rp)
       rp->rph.Status |= STDON;
       return;
    }
-   bar_map();                                      /* retried at bring-up if PhysToGDTSelector refuses here */
+   /* BAR0 is mapped at bring-up (task time), not here */
    tcom_always('I'); tcom_always('2');
    qc_step(4);
    if (STOP_HERE(4)) {

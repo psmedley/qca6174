@@ -112,6 +112,23 @@ static UCHAR  g_rxp_busy[RXP_N];
 static struct RCBufferD g_rcb[RXP_N];
 static DMA    g_txbuf;                      /* TransmitChain gathers the frame here                         */
 
+/* The receive buffers and the transmit gather buffer live in DMA memory. They are allocated when the protocol
+ * binds (task time), not at INIT: touching DMA memory through its GDT selector at INIT hung the boot. */
+static USHORT g_bufs_done;
+
+static void ndis_bufs(void)
+{
+   USHORT i;
+
+   if (g_bufs_done)
+      return;
+   g_bufs_done = 1;
+   for (i = 0; i < RXP_N; i++)
+      if (dma_get(RXP_SIZE, &g_rxp[i]) == 0)
+         g_rxp_busy[i] = 0;
+   dma_get(MAX_FRAME_SIZE + 64, &g_txbuf);
+}
+
 USHORT ndis_init(void)
 {
    static char     pmname[] = "\\DEV\\PROTMAN$";
@@ -122,10 +139,8 @@ USHORT ndis_init(void)
    gCCT.moduleDS = rt_getds();
    gSCT.irq = g_pci_irq;
    for (i = 0; i < RXP_N; i++)
-      if (dma_get(RXP_SIZE, &g_rxp[i]))
-         g_rxp_busy[i] = 2;                 /* not available                                               */
-   dma_get(MAX_FRAME_SIZE + 64, &g_txbuf);
-   qc_step(11);                                /* boot diagnostics: the DMA buffers are allocated and cleared */
+      g_rxp_busy[i] = 2;                    /* not available until the buffers exist (ndis_bufs, at bind)   */
+   qc_step(11);                                /* boot diagnostics: (the buffers are no longer allocated here) */
 
    rc = DosOpen((PSZ)pmname, &hPM, &action, 0L, 0,
                 OPEN_ACTION_OPEN_IF_EXISTS,
@@ -277,6 +292,7 @@ WORD __cdecl ndis_c_sysreq(DWORD param1, DWORD param2, WORD param3, WORD opcode)
       return NDIS_INVALID_PARAMETER;
    if (gSST.status & SSTATUS_BOUND)
       return NDIS_ALREADY_STARTED;
+   ndis_bufs();
    gProtCCT = *(PCCT)param1;
    gProtLDT = *gProtCCT.pLowDisp;
    *(PCCT FAR *)param2 = &gCCT;

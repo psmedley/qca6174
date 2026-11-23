@@ -45,7 +45,8 @@ int mem_init(void)
          break;
       g_cphys[i] = ph;
       g_cused[i] = 0;
-      g_cmapped[i] = (USHORT)(rt_dh_phys_to_gdt(ph, 0xFFFF, g_csel[i]) == 0);
+      g_cmapped[i] = 0;                          /* mapped on first use (chunk_ready), at task time: a write through
+                                                  * a selector mapped here hung the boot (first report)         */
    }
    g_nchunk = i;
    return g_nchunk ? 0 : -2;

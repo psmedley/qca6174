@@ -97,8 +97,8 @@ that many short beeps (1 kHz) and then pauses; count the LAST group before the m
 | 1 | INIT entered, arguments read |
 | 2 | DMA memory and GDT selectors allocated |
 | 3 | PCI scan done (the card was found) |
-| 4 | the 32 windows over BAR0 mapped |
-| long + 1 | inside step 5: the NDIS DMA buffers are allocated |
+| 4 | PCI scan result checked (nothing is mapped at INIT any more) |
+| long + 1 | inside step 5: (the NDIS DMA buffers are now allocated at bind time, not here) |
 | long + 2 | inside step 5: DosOpen of PROTMAN$ returned |
 | 5 | NDIS MAC registered with the Protocol Manager |
 | 6 | PROTOCOL.INI read |
@@ -113,3 +113,8 @@ The same step numbers are written to COM1 as `[S3]`. The beeps need a working PC
 continues: `DEVICE=C:\IBMCOM\MACS\QCA6174.OS2 /S3` does the first three steps only. The smallest n for which the
 boot hangs again shows the step that hangs (`/S1` should boot; if even that hangs, it is the module or its
 header). Combine with `/B` to hear the steps.
+
+Result of the first hang report: 4 beeps and nothing after the first sub-step marker, so the hang was in the first
+write to DMA memory through a GDT selector that had been mapped during INIT. INIT no longer maps or touches DMA
+memory or BAR0: the selectors are allocated at INIT (that is only allowed there) but mapped on first use at task
+time, and the NDIS buffers are allocated when the protocol binds.
