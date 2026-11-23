@@ -105,7 +105,7 @@ static USHORT               g_ndis_reg;
 static USHORT               g_txsel_lock;
 
 /* ---- registration with the Protocol Manager (INIT time) -------------------------------------------- */
-#define RXP_N     8
+#define RXP_N     16
 #define RXP_SIZE  1520
 static DMA    g_rxp[RXP_N];                 /* receive buffers in DMA memory (far): DGROUP stays small     */
 static UCHAR  g_rxp_busy[RXP_N];
