@@ -211,7 +211,7 @@ void qc_dev_write(USHORT sfn, ULONG phys, USHORT n)
 }
 
 /* ---- status text ----------------------------------------------------------------------------------- */
-static char   g_txt[1500];
+static char   g_txt[2400];
 static USHORT g_tn;
 
 static void ps(const char *s) { while (*s && g_tn < sizeof(g_txt) - 1) g_txt[g_tn++] = *s++; }
@@ -233,7 +233,9 @@ static void ph(ULONG v, USHORT digits)
 static void nl(void) { ps("\r\n"); }
 
 extern USHORT g_wmi_events, g_mgmt_rx, g_htc_drops, g_svc_runs, g_hook_runs;
-extern UCHAR  g_mg_ch[15];
+extern ULONG  g_oidlog[], g_oidlog_st[];
+extern UCHAR  g_oidlog_set[], g_mg_ch[15];
+extern USHORT g_oidlog_n, g_ioctl_n, g_bad_n, g_bad_cf;
 extern USHORT g_mg_5g, g_mg_drop, g_mg_laststatus, g_scan_visit[3], g_scan_events, g_scan_last_type;
 extern ULONG  g_fw_build, g_eeprom_rd;
 extern USHORT g_nbarsel;
@@ -266,6 +268,16 @@ static void build_status(void)
    for (i = 1; i <= 14; i++)
       ph(g_mg_ch[i], 2);
    ps(" MG5G="); ph(g_mg_5g, 4); ps(" MGDROP="); ph(g_mg_drop, 4); ps(" ST="); ph(g_mg_laststatus, 4); nl();
+   ps("IOCTLS="); ph(g_ioctl_n, 4); ps(" OTHER="); ph(g_bad_n, 4); ps(" LASTOTHER(cat/func)="); ph(g_bad_cf, 4);
+   ps(" LANNUM="); ph(g_lannum, 2); nl();
+   {
+      USHORT n = g_oidlog_n, first = (n > 16) ? (USHORT)(n - 16) : 0, k;
+
+      for (k = first; k < n; k++) {                       /* oldest first                                     */
+         ps(g_oidlog_set[k % 16] ? "SET " : "GET "); ph(g_oidlog[k % 16], 8);
+         ps(" -> "); ph(g_oidlog_st[k % 16], 8); nl();
+      }
+   }
    ps("LASTERR="); ps(g_last_err_txt); ps(" "); ph(g_last_err, 8); nl();
    ps("DBG=");  ph(g_dbg_n, 4); ps(" ADDR="); ph(g_dbg_addr, 8); ps(" VAL="); ph(g_dbg_val, 8);
    ps(" BARWIN="); ph(g_nbarsel, 2); nl();

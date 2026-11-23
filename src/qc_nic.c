@@ -151,6 +151,13 @@ static USHORT build_bssid_list(UCHAR FAR *out, USHORT room)
 }
 
 static ULONG  g_st, g_olen;
+
+/* Log of the last GenMAC requests, shown in the status text: what the Wireless LAN Monitor / the supplicant asks
+ * and what the driver answered. g_ioctl_n counts every DosDevIOCtl that reached the strategy routine. */
+#define OIDLOG_N 16
+ULONG  g_oidlog[OIDLOG_N], g_oidlog_st[OIDLOG_N];
+UCHAR  g_oidlog_set[OIDLOG_N];
+USHORT g_oidlog_n, g_ioctl_n, g_bad_n, g_bad_cf;
 static ULONG  g_seen[32];
 static USHORT g_nseen;
 static char   g_desc[] = "Qualcomm Atheros QCA6174 802.11ac PCIe WLAN (OS/2 native)";
@@ -439,8 +446,11 @@ void qc_genmac_ioctl(RP_GENIOCTL FAR *rp)
    USHORT dlen, off;
    int    fast;
 
+   g_ioctl_n++;
    if (rp->Category != GENMAC_CATEGORY ||
        (rp->Function != GENMAC_OID_GET && rp->Function != GENMAC_OID_SET)) {
+      g_bad_n++;
+      g_bad_cf = (USHORT)((rp->Category << 8) | rp->Function);   /* an IOCtl that is not a GenMAC OID request    */
       rp->rph.Status |= STDON | STERR | ERROR_I24_BAD_COMMAND;
       return;
    }
@@ -484,6 +494,14 @@ void qc_genmac_ioctl(RP_GENIOCTL FAR *rp)
       }
    }
    oid_request(rp->Function == GENMAC_OID_SET, oid, dat, dlen);
+   {
+      USHORT k = (USHORT)(g_oidlog_n % OIDLOG_N);
+
+      g_oidlog[k] = oid;
+      g_oidlog_st[k] = g_st;
+      g_oidlog_set[k] = (UCHAR)(rp->Function == GENMAC_OID_SET);
+      g_oidlog_n++;
+   }
    if (!fast)
       nic_unlock();
    par[1] = g_st;

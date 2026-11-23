@@ -141,3 +141,20 @@ the management frames received there, `MG5G` the 5 GHz total, `MGDROP`/`ST` fram
 status. If `SCANCH` shows the 2.4 GHz bits set but `MG2G` stays 0, the firmware visited the channels and heard nothing
 (antenna, regulatory domain or genuinely no networks); if the bits are clear, the channel list or the regulatory
 domain keeps the firmware from scanning them.
+
+## 11. The Wireless LAN Monitor does not see the adapter
+
+The monitor finds a GenMAC adapter through `PROTOCOL.INI` and the NIF file, then talks to `\DEV\WRND32$`. Check, in order:
+
+1. `C:\IBMCOM\MACS\QCA6174.NIF` exists (or the adapter was installed through Network Adapters and Support).
+2. `C:\IBMCOM\PROTOCOL.INI` has `QCA6174_NIF = QCA6174.NIF` in `[IBMLXCFG]`, a `[QCA6174_NIF]` section with
+   `DriverName = WRND32$`, and `QCA6174_NIF` in the `Bindings` line of `[TCPIP_NIF]`. The adapter name the monitor
+   and the supplicant use is `lanN`, N = the position in that `Bindings` list counting from 0 (`LANNUM=` in the
+   status text is what the driver derived from the file).
+3. The driver is loaded (`copy \DEV\WRND32$ con` works) and no other driver uses `WRND32$`.
+4. Start the monitor, then read the status text. `IOCTLS=` counts every IOCtl that reached the driver and `OTHER=` /
+   `LASTOTHER` those that were not GenMAC requests. Below them the last 16 requests are listed, oldest first, as
+   `GET|SET <oid> -> <NDIS status>`: `00000000` is success, `C00000BB` not supported, `C0010011` adapter not ready,
+   `C0010016` buffer too short. `IOCTLS=0000` means the monitor never reached the driver (items 1-3, or the
+   monitor did not find the adapter in `PROTOCOL.INI`); a request answered `C00000BB` is an OID the monitor needs
+   and the driver does not provide.
