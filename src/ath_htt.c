@@ -416,10 +416,17 @@ static void tx_compl(UCHAR FAR *p, USHORT len)
       g_htt_txfail++;                                     /* discarded / no ack                               */
 }
 
+USHORT g_t2h_seen[16];                                    /* count per HTT target-to-host message type (0..15)   */
+USHORT g_t2h_other;                                       /* types above 15                                      */
+
 void htt_rx(UCHAR FAR *p, USHORT len)
 {
    if (len < 1)
       return;
+   if (p[0] < 16)
+      g_t2h_seen[p[0]]++;
+   else
+      g_t2h_other++;
    switch (p[0]) {
    case T2H_VERSION_CONF:
       if (len >= 3) {
