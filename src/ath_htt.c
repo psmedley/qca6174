@@ -248,6 +248,35 @@ int htt_setup(void)
 }
 
 /* ---- receive path -------------------------------------------------------------------------------- */
+/* Throughput diagnostics: the busiest one-second window of received / transmitted frames. */
+USHORT g_pps_rx_max, g_pps_tx_max;
+static ULONG  g_w_rx, g_w_tx;
+static USHORT g_c_rx, g_c_tx;
+
+static void stat_rx(void)
+{
+   ULONG t = qc_ms();
+
+   if ((long)(t - g_w_rx) >= 1000L) {
+      if (g_c_rx > g_pps_rx_max) g_pps_rx_max = g_c_rx;
+      g_c_rx = 0;
+      g_w_rx = t;
+   }
+   g_c_rx++;
+}
+
+static void stat_tx(void)
+{
+   ULONG t = qc_ms();
+
+   if ((long)(t - g_w_tx) >= 1000L) {
+      if (g_c_tx > g_pps_tx_max) g_pps_tx_max = g_c_tx;
+      g_c_tx = 0;
+      g_w_tx = t;
+   }
+   g_c_tx++;
+}
+
 static void rx_msdu(USHORT b, USHORT mlen)
 {
    UCHAR FAR *d = DPTR(g_rb[b]);
@@ -278,6 +307,7 @@ static void rx_msdu(USHORT b, USHORT mlen)
       if (mlen < 14 || mlen > 1514) { g_htt_rxdrop++; g_rx_why[6]++; return; }
       rt_movmem((PVOID)g_eth, pl, mlen);
       g_htt_rxfrm++;
+      stat_rx();
       sta_rx_eth((UCHAR FAR *)g_eth, mlen);
       return;
    }
@@ -325,6 +355,7 @@ static void rx_msdu(USHORT b, USHORT mlen)
    if (n > 1514) { g_htt_rxdrop++; g_rx_why[6]++; return; }
    rt_movmem((PVOID)(g_eth + 14), body, blen);
    g_htt_rxfrm++;
+   stat_rx();
    sta_rx_eth((UCHAR FAR *)g_eth, n);
 }
 
@@ -545,6 +576,7 @@ static int tx_common(UCHAR FAR *eth, USHORT len, USHORT noenc, USHORT mgmt)
       return -2;
    }
    g_htt_txok++;
+   stat_tx();
    rt_lock_release(&g_tx_lock);
    rt_irq_restore(fl);
    return 0;

@@ -235,6 +235,8 @@ static void ph(ULONG v, USHORT digits)
 }
 static void nl(void) { ps("\r\n"); }
 
+extern USHORT g_pps_rx_max, g_pps_tx_max, g_lat_max, g_lat_n;
+extern ULONG g_lat_sum;
 extern USHORT g_wmi_events, g_mgmt_rx, g_htc_drops, g_svc_runs, g_hook_runs;
 extern USHORT g_rx_why[8], g_tx_calls, g_tx_why[8], g_tx_last_len, g_tx_last_et;
 extern int    g_tx_last_rc;
@@ -306,6 +308,8 @@ static void build_status(void)
    ps(" txhw="); ph(ndis_state(3), 4); ps(" rx="); ph(ndis_state(4), 4); ps(" nobuf="); ph(ndis_state(5), 4); nl();
    ps("NDISQ hi="); ph(ndis_state(9), 4); ps(" hooks="); ph(ndis_state(10), 4); ps(" dropbusy="); ph(ndis_state(11), 4);
    ps(" dropoff="); ph(ndis_state(12), 4); nl();
+   ps("RATE rxpps="); ph(g_pps_rx_max, 4); ps(" txpps="); ph(g_pps_tx_max, 4);
+   ps(" irq2hook max="); ph(g_lat_max, 4); ps("ms n="); ph(g_lat_n, 4); ps(" sumlo="); ph((USHORT)g_lat_sum, 4); nl();
    ps("TXCALLS="); ph(g_tx_calls, 4); ps(" WHY(open,link,buf,big,map,refused,busy,ok)=");
    for (i = 0; i < 8; i++) { ph(g_tx_why[i], 4); ps(i < 7 ? "," : ""); }
    ps(" LAST len="); ph(g_tx_last_len, 4); ps(" type="); ph(g_tx_last_et, 4); ps(" rc="); ph((USHORT)g_tx_last_rc, 4); nl();
