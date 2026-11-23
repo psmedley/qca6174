@@ -63,7 +63,8 @@ static USHORT g_wr_sfn = 0xFFFF, g_wr_kind, g_wr_err;
 static char   g_cmd[82];
 static USHORT g_cmdn;
 static USHORT g_rd_sfn = 0xFFFF, g_rd_done;
-static ULONG  g_dbg_val;
+static ULONG  g_dbg_val, g_dbg_addr;
+static USHORT g_dbg_n;                           /* debug reads done                                           */
 
 static ULONG hexval(char *p)
 {
@@ -108,14 +109,18 @@ static void run_cmd(void)
       if (bar_map() == 0) {
          ULONG a = hexval(c + 2);
 
+         g_dbg_addr = a;
          g_dbg_val = ath_rd(a);
+         g_dbg_n++;
          tstr("[r "); th32(a); tcom('='); th32(g_dbg_val); tcom(']'); tnl();
       }
    } else if (c[0] == 'd' && c[1] == ' ') {
       if (g_hw_ready) {
          ULONG a = hexval(c + 2);
 
+         g_dbg_addr = a;
          g_dbg_val = diag_rd32(a);
+         g_dbg_n++;
          tstr("[d "); th32(a); tcom('='); th32(g_dbg_val); tcom(' '); th16((USHORT)g_diag_rc); tcom(']'); tnl();
       }
    }
@@ -229,6 +234,7 @@ static void nl(void) { ps("\r\n"); }
 
 extern USHORT g_wmi_events, g_mgmt_rx, g_htc_drops, g_svc_runs, g_hook_runs;
 extern ULONG  g_fw_build, g_eeprom_rd;
+extern USHORT g_nbarsel;
 extern char  *ath_board_name(void);
 
 static void build_status(void)
@@ -253,6 +259,8 @@ static void build_status(void)
    ps(" HOOK="); ph(g_hook_runs, 4); ps(" SVC="); ph(g_svc_runs, 4); ps(" WMIEV="); ph(g_wmi_events, 4);
    ps(" MGMTRX="); ph(g_mgmt_rx, 4); ps(" HTCDROP="); ph(g_htc_drops, 4); nl();
    ps("LASTERR="); ps(g_last_err_txt); ps(" "); ph(g_last_err, 8); nl();
+   ps("DBG=");  ph(g_dbg_n, 4); ps(" ADDR="); ph(g_dbg_addr, 8); ps(" VAL="); ph(g_dbg_val, 8);
+   ps(" BARWIN="); ph(g_nbarsel, 2); nl();
    ps("LINK="); ps(g_joined ? "JOINED " : "none "); ph(g_jch, 2); ps(" AID="); ph(g_jaid, 4);
    ps(" JFAIL="); ph(g_jfail, 2); ps(" AUTH="); ph(g_auth_status, 4); ps(" ASSOC="); ph(g_assoc_status, 4);
    ps(g_open_net ? " OPEN" : " RSN"); ps(g_ptk_on ? " PTK" : " nokey"); ps(g_authorized ? " AUTHORIZED" : ""); nl();

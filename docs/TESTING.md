@@ -118,3 +118,16 @@ Result of the first hang report: 4 beeps and nothing after the first sub-step ma
 write to DMA memory through a GDT selector that had been mapped during INIT. INIT no longer maps or touches DMA
 memory or BAR0: the selectors are allocated at INIT (that is only allowed there) but mapped on first use at task
 time, and the NDIS buffers are allocated when the protocol binds.
+
+## 9. First contact with the hardware, with no serial port
+
+The status text has a line `DBG=n ADDR=a VAL=v BARWIN=w`: the last debug read. `echo r <hex offset> > \DEV\WRND32$`
+maps BAR0 (on the first use) and reads one 32-bit register; `echo d <hex target address>` reads target memory
+through the diagnostic copy engine (only after a successful `up`). Read the result with `copy \DEV\WRND32$ con`.
+
+1. `echo r 80000 > \DEV\WRND32$`, then the status: `BARWIN=20` (32 windows mapped) and `VAL` anything but
+   `FFFFFFFF` means the registers are reachable. (Offset 80000 is PCIE_LOCAL + RTC_STATE; bits 2:0 are 3 when the
+   chip is awake.) `VAL=FFFFFFFF` means the mapping or the device does not answer.
+2. `echo r 3a028 > \DEV\WRND32$` reads the firmware indicator register.
+3. Only then the upload and `echo up`. `echo up` is the first thing that resets the chip; if the machine freezes
+   there, the last `STATE=` cannot be read, so take the steps above first and note which one was the last to work.
