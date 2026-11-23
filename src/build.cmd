@@ -5,6 +5,10 @@ rem usage: build                 (compile everything and link)
 rem        build file1 file2 ... (recompile only these C files, e.g. "build ath_wmi", then link)
 rem The compiler flags are written out on each wcc line: CMD.EXE does not expand %VAR% the same way
 rem inside a FOR command, and wcc then sees the flags as extra file names (E1139).
+set WATCOM=u:\WATCOM
+set PATH=u:\WATCOM\binp;C:\usr\bin;%PATH%
+set INCLUDE=
+set beginlibpath=u:\watcom\binp\dll
 set INCLUDE=
 for %%f in (qc_hdr qc_lib qc_ndisx qc_end) do nasm -f obj %%f.asm -o %%f.obj
 if "%1"=="" goto all
