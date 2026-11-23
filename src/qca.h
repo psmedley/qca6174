@@ -278,6 +278,7 @@ extern USHORT g_htt_txok, g_htt_txfail, g_htt_txfull, g_htt_rxfrm, g_htt_rxdrop,
 int    htt_setup(void);                       /* version, rx ring, aggregation limits                      */
 void   htt_reset(void);
 void   htt_rx(UCHAR FAR *p, USHORT len);      /* every message of the HTT endpoint                          */
+int    htt_tx_mgmt(UCHAR FAR *frame, USHORT len);   /* a complete management frame, 0 = queued                */
 int    htt_tx_eth(UCHAR FAR *eth, USHORT len, USHORT noenc);  /* 0 = queued, -1 = not connected, -2 = busy */
 
 /* ---- station state and scan table (ath_sta.c) ----------------------------------------------------- */

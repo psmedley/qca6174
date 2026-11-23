@@ -401,7 +401,9 @@ void htt_rx(UCHAR FAR *p, USHORT len)
 }
 
 /* ---- transmit path -------------------------------------------------------------------------------- */
-int htt_tx_eth(UCHAR FAR *eth, USHORT len, USHORT noenc)
+/* mgmt = 0: an Ethernet frame (eth, len) becomes a native-wifi data frame. mgmt = 1: eth is a complete 802.11
+ * management frame (HTT >= 3 TX_FRM with packet type MGMT: the frag list is replaced by the frame address). */
+static int tx_common(UCHAR FAR *eth, USHORT len, USHORT noenc, USHORT mgmt)
 {
    USHORT cid = (USHORT)(rt_cpu_id() + 1), fl, i, slot, flen, pre, so;
    UCHAR FAR *s, FAR *f;
@@ -409,9 +411,9 @@ int htt_tx_eth(UCHAR FAR *eth, USHORT len, USHORT noenc)
    CE    *c = &g_ce[4];
    int    r;
 
-   if (!g_htt_ready || !g_joined)
+   if (!g_htt_ready || (!mgmt && !g_joined))
       return -1;
-   if (len < 14 || len > 1514)
+   if (mgmt ? (len < 24 || len > 400) : (len < 14 || len > 1514))
       return -1;
    fl = rt_irq_save();
    if (rt_lock_try(&g_tx_lock, cid)) {
@@ -444,26 +446,40 @@ int htt_tx_eth(UCHAR FAR *eth, USHORT len, USHORT noenc)
    ph = g_txpool.phys + so;
    f = s + TX_HDR;
 
-   /* 802.11 native-wifi frame: data, To-DS, [Protected], addr1 = BSSID, addr2 = SA, addr3 = DA, LLC/SNAP */
    {
-      UCHAR prot = (UCHAR)((!noenc && g_ptk_on) ? 0x40 : 0);
+      UCHAR  prot = 0, flags0;
+      USHORT flags1;
+      ULONG  frags;
 
-      f[0] = 0x08;
-      f[1] = (UCHAR)(0x01 | prot);
-      f[2] = f[3] = 0;
-      for (i = 0; i < 6; i++) {
-         f[4 + i]  = g_jbssid[i];
-         f[10 + i] = eth[6 + i];
-         f[16 + i] = eth[i];
+      if (mgmt) {
+         rt_movmem((PVOID)f, eth, len);
+         flen = len;
+         flags0 = (UCHAR)(0x01 | 0x60 | 0x04);          /* MAC_HDR_PRESENT | pkt type MGMT (3) | NO_ENCRYPT     */
+         flags1 = 0x0C40;                                /* vdev 0, ext tid 17 (management), POSTPONED           */
+         frags = ph + TX_HDR;                            /* the frame itself                                     */
+      } else {
+         /* 802.11 native-wifi frame: data, To-DS, [Protected], addr1 = BSSID, addr2 = SA, addr3 = DA, LLC/SNAP */
+         prot = (UCHAR)((!noenc && g_ptk_on) ? 0x40 : 0);
+         f[0] = 0x08;
+         f[1] = (UCHAR)(0x01 | prot);
+         f[2] = f[3] = 0;
+         for (i = 0; i < 6; i++) {
+            f[4 + i]  = g_jbssid[i];
+            f[10 + i] = eth[6 + i];
+            f[16 + i] = eth[i];
+         }
+         f[22] = f[23] = 0;                              /* sequence control: the firmware numbers frames        */
+         f[24] = 0xAA; f[25] = 0xAA; f[26] = 0x03; f[27] = f[28] = f[29] = 0;
+         f[30] = eth[12]; f[31] = eth[13];
+         rt_movmem((PVOID)(f + 32), eth + 14, (USHORT)(len - 14));
+         flen = (USHORT)(32 + len - 14);
+         flags0 = (UCHAR)(0x01 | 0x20 | (prot ? 0 : 0x04));   /* MAC_HDR_PRESENT | NATIVE_WIFI | NO_ENCRYPT    */
+         flags1 = 0x0C00;                                /* vdev 0, ext tid 16 (non-QoS), POSTPONED              */
+         frags = ph;                                     /* the fragment list at the start of the slot           */
       }
-      f[22] = f[23] = 0;                                  /* sequence control: the firmware numbers frames      */
-      f[24] = 0xAA; f[25] = 0xAA; f[26] = 0x03; f[27] = f[28] = f[29] = 0;
-      f[30] = eth[12]; f[31] = eth[13];
-      rt_movmem((PVOID)(f + 32), eth + 14, (USHORT)(len - 14));
-      flen = (USHORT)(32 + len - 14);
       pre = (flen < TX_PREFETCH) ? flen : TX_PREFETCH;
       pre = (USHORT)((pre + 3) & ~3);
-      /* frag list */
+      /* frag list (data frames) */
       p32(s + 0, ph + TX_HDR);
       p32(s + 4, (ULONG)flen);
       p32(s + 8, 0UL);
@@ -474,11 +490,11 @@ int htt_tx_eth(UCHAR FAR *eth, USHORT len, USHORT noenc)
       s[20] = s[21] = 0; s[22] = s[23] = 0;
       /* HTT command header and TX descriptor */
       s[24] = H2T_TX_FRM;
-      s[25] = (UCHAR)(0x01 | 0x20 | (prot ? 0 : 0x04));  /* MAC_HDR_PRESENT | pkt type NATIVE_WIFI | NO_ENCRYPT  */
-      p16(s + 26, 0x0C00);                               /* vdev 0, ext tid 16 (non-QoS), POSTPONED             */
+      s[25] = flags0;
+      p16(s + 26, flags1);
       p16(s + 28, flen);
       p16(s + 30, slot);                                 /* msdu id                                              */
-      p32(s + 32, ph);                                   /* frags_paddr                                          */
+      p32(s + 32, frags);                                /* frags_paddr                                          */
       p32(s + 36, 0x0000FFFFUL);                         /* peer id: invalid (HTT_INVALID_PEERID)                */
    }
    r = ce_send(4, ph + 16, 24, 0, CE_SEND_GATHER);
@@ -499,4 +515,14 @@ int htt_tx_eth(UCHAR FAR *eth, USHORT len, USHORT noenc)
    rt_lock_release(&g_tx_lock);
    rt_irq_restore(fl);
    return 0;
+}
+
+int htt_tx_eth(UCHAR FAR *eth, USHORT len, USHORT noenc)
+{
+   return tx_common(eth, len, noenc, 0);
+}
+
+int htt_tx_mgmt(UCHAR FAR *frame, USHORT len)
+{
+   return tx_common(frame, len, 1, 1);
 }

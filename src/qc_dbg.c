@@ -268,7 +268,11 @@ static void build_status(void)
    ps(" RXDROP="); ph(g_htt_rxdrop, 4); ps(" TXOK="); ph(g_htt_txok, 4); ps(" TXCOMPL="); ph(g_htt_txcompl, 4);
    ps(" TXFAIL="); ph(g_htt_txfail, 4); ps(" TXFULL="); ph(g_htt_txfull, 4); nl();
    ps("EAPOL="); ph(sta_eapol_count(), 2); ps(" FWREORDER="); ph(g_svc_full_reorder, 1);
-   ps(" MGMTWMI="); ph(g_svc_mgmt_tx_wmi, 1); nl();
+   ps(" MGMTWMI="); ph(g_svc_mgmt_tx_wmi, 1); ps(" MGMT="); ps((g_svc_mgmt_tx_wmi || fw_feature(2)) ? "wmi" : "htt");
+   ps(" FEAT=");
+   for (i = 0; i < 8; i++)
+      ph(g_fw.features[i], 2);
+   nl();
    for (i = 0; i < g_nnet; i++) {
       ps("NET="); ph(g_net[i].ch, 2); ps(" ");
       ph((ULONG)(UCHAR)g_net[i].rssi, 2); ps(" ");

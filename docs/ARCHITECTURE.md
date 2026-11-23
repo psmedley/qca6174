@@ -161,9 +161,11 @@ These are the places where the code follows ath10k from reading it, with nothing
 2. **RX descriptor layout** is computed for `htt_rx_desc_v1`; the offsets the driver sends in the ring
    configuration and the ones it reads must agree with the firmware (`RXDROP=` counts frames rejected for a
    missing MSDU_DONE flag, errors, or an unknown buffer address).
-3. **Management frames over WMI.** The command carries the frame inline and by DMA address, as ath10k does. If
-   `JFAIL=2` (no authentication reply) appears on every network, check that the firmware advertises
-   `MGMT_TX_WMI` (`MGMTWMI=1`) and look for `WMI_MGMT_TX_COMPLETION` events.
+3. **Management frames.** ath10k sends them over WMI only if the firmware has the feature "has-wmi-mgmt-tx" (bit 2)
+   or the service MGMT_TX_WMI (76); otherwise through the HTT data path with packet type MGMT (HTT >= 3). The
+   driver makes the same choice (`MGMT=wmi|htt` in the status text). The first hardware run reported
+   `MGMTWMI=0`, so which path is used depends on the feature bits (`FEAT=` shows them). Either path is untested;
+   if every join ends with `JFAIL=2` (no authentication reply), this is the first suspect.
 4. **vdev start details.** Beacon interval and DTIM are taken from the beacon; the channel is sent as a legacy
    20 MHz channel. ath10k also sets a number of vdev and peer parameters (RTS threshold, power save, kick-out
    timers) that are not set here; the firmware defaults are assumed.

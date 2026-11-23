@@ -796,6 +796,10 @@ int wmi_mgmt_tx(UCHAR FAR *frame, USHORT len)
 
    if (len > 400)
       return -3;
+   /* ath10k_mac_tx_h_get_txpath: WMI if the firmware has the feature "has-wmi-mgmt-tx" (bit 2) or the service
+    * WMI_SERVICE_MGMT_TX_WMI, else the HTT data path (HTT >= 3) with the management packet type. */
+   if (!g_svc_mgmt_tx_wmi && !fw_feature(2))
+      return htt_tx_mgmt(frame, len);
    if (!g_mgmt_buf.phys && dma_get(512, &g_mgmt_buf))
       return -4;
    rt_movmem(DPTR(g_mgmt_buf), frame, len);
