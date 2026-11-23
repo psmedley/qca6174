@@ -515,7 +515,7 @@ static int cmd_scan_chan_list(void)
    for (i = 0; i < NCHANS; i++) {
       UCHAR  c = g_chans[i];
       USHORT mhz = ch_mhz(c);
-      ULONG  fl = (c <= 14) ? (g_use_ht ? 5UL : (ULONG)MODE_11G) : (g_use_ht ? 4UL : (ULONG)MODE_11A);   /* HT20 or legacy */
+      ULONG  fl = (c <= 14) ? (g_use_ht ? (5UL | 0x800UL) : (ULONG)MODE_11G) : (g_use_ht ? (4UL | 0x800UL) : (ULONG)MODE_11A);   /* HT20 (+ ALLOW_HT) or legacy */
       UCHAR FAR *w = tlv(q, TAG_CHANNEL, 24);         /* struct wmi_channel                              */
 
       fl |= WMI_CHAN_FLAG_ALLOW_HT;
