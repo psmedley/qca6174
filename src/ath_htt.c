@@ -51,6 +51,11 @@
 #define FW_FEAT_NO_NWIFI_4ADDR_PAD 8
 
 USHORT g_htt_ready;
+/* why received frames were dropped (status text RXWHY): 0 unknown buffer, 1 not done, 2 error flags, 3 decap format,
+ * 4 not data / null, 5 too short, 6 too long, 7 not joined */
+USHORT g_rx_why[8];
+UCHAR  g_rx_decap_last, g_rx_fc_last;
+ULONG  g_rx_attn_last;
 USHORT g_htt_txok, g_htt_txfail, g_htt_txfull, g_htt_rxfrm, g_htt_rxdrop, g_htt_rxind, g_htt_txcompl;
 
 static DMA     g_rxring, g_rxidx, g_rb[RX_NBUF], g_txpool;
@@ -252,29 +257,42 @@ static void rx_msdu(USHORT b, USHORT mlen)
    UCHAR  fc0, fc1, decap;
    UCHAR FAR *da, FAR *sa, FAR *body;
 
-   if (!(attn & ATT_MSDU_DONE) || (attn & (ATT_FCS_ERR | ATT_DECRYPT_ERR | ATT_TKIP_MIC_ERR))) {
-      g_htt_rxdrop++;
+   g_rx_attn_last = attn;
+   if (!(attn & ATT_MSDU_DONE)) {
+      g_htt_rxdrop++; g_rx_why[1]++;
+      return;
+   }
+   if (attn & (ATT_FCS_ERR | ATT_DECRYPT_ERR | ATT_TKIP_MIC_ERR)) {
+      g_htt_rxdrop++; g_rx_why[2]++;
       return;
    }
    if (mlen > RX_BUF_SZ - RXD_PAYLOAD)
       mlen = RX_BUF_SZ - RXD_PAYLOAD;
-   decap = (UCHAR)(d[RXD_MSDU_START + 5] & 3);           /* rx_msdu_start.info1 bits 9:8: 1 = native wifi      */
+   /* struct rx_msdu_start_common is { info0; flow_id_crc; info1 }: info1 is at +8, its bits 9:8 are the decap
+    * format (0 raw, 1 native wifi, 2 Ethernet II, 3 802.3 with SNAP). (An earlier version read byte +5.) */
+   decap = (UCHAR)(d[RXD_MSDU_START + 9] & 3);
+   g_rx_decap_last = decap;
+   g_rx_fc_last = pl[0];
 
    if (decap == 2) {                                      /* Ethernet II: nothing to convert                    */
-      if (mlen < 14 || mlen > 1514) { g_htt_rxdrop++; return; }
+      if (mlen < 14 || mlen > 1514) { g_htt_rxdrop++; g_rx_why[6]++; return; }
       rt_movmem((PVOID)g_eth, pl, mlen);
       g_htt_rxfrm++;
       sta_rx_eth((UCHAR FAR *)g_eth, mlen);
       return;
    }
-   if (decap != 1 || mlen < 24 + 8) {                    /* raw and 802.3 SNAP are not produced by this setup  */
-      g_htt_rxdrop++;
+   if (decap != 1) {                                      /* raw and 802.3 SNAP are not produced by this setup  */
+      g_htt_rxdrop++; g_rx_why[3]++;
+      return;
+   }
+   if (mlen < 24 + 8) {
+      g_htt_rxdrop++; g_rx_why[5]++;
       return;
    }
    fc0 = pl[0];
    fc1 = pl[1];
    if ((fc0 & 0x0C) != 0x08 || (fc0 & 0x40)) {           /* not data, or a null-data frame                     */
-      g_htt_rxdrop++;
+      g_htt_rxdrop++; g_rx_why[4]++;
       return;
    }
    hl = 24;
@@ -282,7 +300,7 @@ static void rx_msdu(USHORT b, USHORT mlen)
    if (fc0 & 0x80) hl += 2;                               /* QoS control                                        */
    if (!fw_feature(FW_FEAT_NO_NWIFI_4ADDR_PAD))
       hl = (USHORT)((hl + 3) & ~3);                       /* ath10k_htt_rx_nwifi_hdrlen                          */
-   if (mlen < hl + 8) { g_htt_rxdrop++; return; }
+   if (mlen < hl + 8) { g_htt_rxdrop++; g_rx_why[5]++; return; }
    da = ((fc1 & 3) == 3 || (fc1 & 1)) ? pl + 16 : pl + 4;
    sa = ((fc1 & 3) == 3) ? pl + 24 : ((fc1 & 2) ? pl + 16 : pl + 10);
    body = pl + hl;
@@ -304,7 +322,7 @@ static void rx_msdu(USHORT b, USHORT mlen)
       g_eth[13] = (UCHAR)blen;
    }
    n = (USHORT)(14 + blen);
-   if (n > 1514) { g_htt_rxdrop++; return; }
+   if (n > 1514) { g_htt_rxdrop++; g_rx_why[6]++; return; }
    rt_movmem((PVOID)(g_eth + 14), body, blen);
    g_htt_rxfrm++;
    sta_rx_eth((UCHAR FAR *)g_eth, n);
@@ -332,11 +350,13 @@ static void rx_in_ord(UCHAR FAR *p, USHORT len)
       int    b = find_buf(paddr);
 
       if (b < 0 || g_rb_free[b]) {
-         g_htt_rxdrop++;                                  /* a buffer we do not know: ring state is suspect   */
+         g_htt_rxdrop++; g_rx_why[0]++;                   /* a buffer we do not know: ring state is suspect   */
          continue;
       }
       if (!offload && g_joined)
          rx_msdu((USHORT)b, mlen);
+      else
+         g_rx_why[7]++;                                   /* offloaded, or not connected (not counted as a drop) */
       g_rb_free[b] = 1;
       if (g_rx_fill)
          g_rx_fill--;
@@ -382,6 +402,18 @@ void htt_rx(UCHAR FAR *p, USHORT len)
       break;
    case T2H_TX_COMPL_IND:
       tx_compl(p, len);
+      break;
+   case T2H_MGMT_TX_COMPL:                                /* u8 type; u8 rsvd[2]; u8 flags; le32 desc_id; le32 status */
+      if (len >= 12) {
+         ULONG id = g32(p + 4);
+
+         if (id < TX_N) {
+            g_tx_busy[id] = 0;
+            g_htt_txcompl++;
+         }
+         if (g32(p + 8) != 0UL)
+            g_htt_txfail++;
+      }
       break;
    case T2H_PEER_MAP:                                     /* u8 type; u8 vdev_id; le16 peer_id; u8 addr[6]    */
       if (len >= 10) {

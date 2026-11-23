@@ -158,7 +158,29 @@ These are the places where the code follows ath10k from reading it, with nothing
 1. **HTT RX ring start index.** `fw_idx_init_val` is set to the alloc index after the first refill, as ath10k
    does (the doc comment in ath10k's `htt.h` describes the alloc index as the position the host has filled up to).
    If the firmware never reports a buffer, look at `RXIND=` in the status text and at this first.
-2. **RX descriptor layout** is computed for `htt_rx_desc_v1`; the offsets the driver sends in the ring
+2. **RX descriptor layout.** The first WPA2 attempt associated (AID assigned) but every received frame was dropped:
+   the decap format was read from byte +5 of `rx_msdu_start`, but `struct rx_msdu_start_common` is
+   `{ info0; flow_id_crc; info1 }`, so it is at +8 (bits 9:8). Fixed; `RXWHY=` in the status text counts the reasons a
+   frame can be dropped (0 unknown buffer, 1 MSDU not done, 2 error flags, 3 decap format, 4 not data, 5 too short,
+   6 too long, 7 not connected / offloaded) and `LAST` shows the last decap, frame-control byte and attention word.
+   The remaining offsets are for `htt_rx_desc_v1`; the offsets the driver sends in the ring
+   configuration and the ones it reads must agree with the firmware (`RXDROP=` counts frames rejected for a
+   missing MSDU_DONE flag, errors, or an unknown buffer address).
+3. **Management frames.** ath10k sends them over WMI only if the firmware has the feature "has-wmi-mgmt-tx" (bit 2)
+   or the service MGMT_TX_WMI (76); otherwise through the HTT data path with packet type MGMT (HTT >= 3). The
+   driver makes the same choice (`MGMT=wmi|htt` in the status text). The first hardware run reported
+   `MGMTWMI=0`, so which path is used depends on the feature bits (`FEAT=` shows them). Either path is untested;
+   if every join ends with `JFAIL=2` (no authentication reply), this is the first suspect.
+4. **vdev start details.** Beacon interval and DTIM are taken from the beacon; the channel is sent as a legacy
+   20 MHz channel. ath10k also sets a number of vdev and peer parameters (RTS threshold, power save, kick-out
+   timers) that are not set here; the firmware defaults are assumed.
+5. **The hardware RX filter workaround** ath10k does at start-up for this chip (create and delete a dummy vdev so
+   that `MAC_PCU_ADDR1_MASK` is set) is not done. Symptom if it matters: the card ACKs frames for other stations.
+6. **Throughput.** Legacy rates only (no HT/VHT, no aggregation requests from our side), 20 MHz. The AP's
+   aggregation towards us is handled by the firmware's reorder.
+7. **No WPA3, WPA1, TKIP, WEP, 802.11w, PMKID caching.** WPA2-PSK/CCMP and open networks only, like the RTL
+   drivers.
+ for `htt_rx_desc_v1`; the offsets the driver sends in the ring
    configuration and the ones it reads must agree with the firmware (`RXDROP=` counts frames rejected for a
    missing MSDU_DONE flag, errors, or an unknown buffer address).
 3. **Management frames.** ath10k sends them over WMI only if the firmware has the feature "has-wmi-mgmt-tx" (bit 2)

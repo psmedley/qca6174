@@ -233,6 +233,9 @@ static void ph(ULONG v, USHORT digits)
 static void nl(void) { ps("\r\n"); }
 
 extern USHORT g_wmi_events, g_mgmt_rx, g_htc_drops, g_svc_runs, g_hook_runs;
+extern USHORT g_rx_why[8];
+extern UCHAR  g_rx_decap_last, g_rx_fc_last;
+extern ULONG  g_rx_attn_last;
 extern ULONG  g_oidlog[], g_oidlog_st[];
 extern UCHAR  g_oidlog_set[], g_mg_ch[15];
 extern USHORT g_oidlog_n, g_ioctl_n, g_bad_n, g_bad_cf;
@@ -287,6 +290,9 @@ static void build_status(void)
    ps("HTT="); ps(g_htt_ready ? "ready" : "down"); ps(" RXIND="); ph(g_htt_rxind, 4); ps(" RXFRM="); ph(g_htt_rxfrm, 4);
    ps(" RXDROP="); ph(g_htt_rxdrop, 4); ps(" TXOK="); ph(g_htt_txok, 4); ps(" TXCOMPL="); ph(g_htt_txcompl, 4);
    ps(" TXFAIL="); ph(g_htt_txfail, 4); ps(" TXFULL="); ph(g_htt_txfull, 4); nl();
+   ps("RXWHY=");
+   for (i = 0; i < 8; i++) { ph(g_rx_why[i], 4); ps(i < 7 ? "," : ""); }
+   ps(" LAST decap="); ph(g_rx_decap_last, 2); ps(" fc0="); ph(g_rx_fc_last, 2); ps(" attn="); ph(g_rx_attn_last, 8); nl();
    ps("EAPOL="); ph(sta_eapol_count(), 2); ps(" FWREORDER="); ph(g_svc_full_reorder, 1);
    ps(" MGMTWMI="); ph(g_svc_mgmt_tx_wmi, 1); ps(" MGMT="); ps((g_svc_mgmt_tx_wmi || fw_feature(2)) ? "wmi" : "htt");
    ps(" FEAT=");
