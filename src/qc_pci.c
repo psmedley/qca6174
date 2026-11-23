@@ -218,7 +218,9 @@ void intx_enable(void)
 /* ---- context hook: task-time servicing armed by the interrupt handler ---------------------------- */
 static ULONG  g_hook;
 static USHORT g_hook_ok;
-USHORT        g_hook_runs, g_hook_armfail;
+USHORT        g_hook_runs, g_hook_armfail, g_lat_max, g_lat_n;
+ULONG         g_lat_sum;
+static ULONG  g_irq_t;
 extern void   ndis_hook_deliver(void);    /* qc_ndis.c: received frames queued for the protocol          */
 
 int hook_init(void)
@@ -239,6 +241,13 @@ void hook_arm(void)
 
 void __cdecl qc_hook_c(void)
 {
+   USHORT d = (USHORT)(qc_ms() - g_irq_t);          /* interrupt -> task-time servicing, in ms              */
+
+   if (d < 1000) {
+      if (d > g_lat_max) g_lat_max = d;
+      g_lat_sum += d;
+      g_lat_n++;
+   }
    g_hook_runs++;
    if (g_hw_ready) {
       ath_service();
@@ -261,6 +270,7 @@ USHORT __cdecl qc_irq_c(void)
    }
    intx_disable_clear();
    g_irq_count++;
+   g_irq_t = qc_ms();
    qc_dh_eoi(g_pci_irq);
    hook_arm();
    return 1;

@@ -105,12 +105,29 @@ static USHORT               g_ndis_reg;
 static USHORT               g_txsel_lock;
 
 /* ---- registration with the Protocol Manager (INIT time) -------------------------------------------- */
-#define RXP_N     8
+#define RXP_N     64
 #define RXP_SIZE  1520
 static DMA    g_rxp[RXP_N];                 /* receive buffers in DMA memory (far): DGROUP stays small     */
 static UCHAR  g_rxp_busy[RXP_N];
 static struct RCBufferD g_rcb[RXP_N];
 static DMA    g_txbuf;                      /* TransmitChain gathers the frame here                         */
+
+/* The receive buffers and the transmit gather buffer live in DMA memory. They are allocated when the protocol
+ * binds (task time), not at INIT: touching DMA memory through its GDT selector at INIT hung the boot. */
+static USHORT g_bufs_done;
+
+static void ndis_bufs(void)
+{
+   USHORT i;
+
+   if (g_bufs_done)
+      return;
+   g_bufs_done = 1;
+   for (i = 0; i < RXP_N; i++)
+      if (dma_get(RXP_SIZE, &g_rxp[i]) == 0)
+         g_rxp_busy[i] = 0;
+   dma_get(MAX_FRAME_SIZE + 64, &g_txbuf);
+}
 
 USHORT ndis_init(void)
 {
@@ -122,13 +139,13 @@ USHORT ndis_init(void)
    gCCT.moduleDS = rt_getds();
    gSCT.irq = g_pci_irq;
    for (i = 0; i < RXP_N; i++)
-      if (dma_get(RXP_SIZE, &g_rxp[i]))
-         g_rxp_busy[i] = 2;                 /* not available                                               */
-   dma_get(MAX_FRAME_SIZE + 64, &g_txbuf);
+      g_rxp_busy[i] = 2;                    /* not available until the buffers exist (ndis_bufs, at bind)   */
+   qc_step(11);                                /* boot diagnostics: (the buffers are no longer allocated here) */
 
    rc = DosOpen((PSZ)pmname, &hPM, &action, 0L, 0,
                 OPEN_ACTION_OPEN_IF_EXISTS,
                 OPEN_FLAGS_NOINHERIT | OPEN_SHARE_DENYREADWRITE | OPEN_ACCESS_READONLY, 0L);
+   qc_step(12);                                /* boot diagnostics: DosOpen of PROTMAN$ returned              */
    if (rc != 0 || action != FILE_EXISTED)
       return 1;
    rb.opcode   = PM_OP_REGISTER_MODULE;
@@ -166,7 +183,7 @@ int ndis_set_mac(UCHAR *m)
 /* ---- receive ---------------------------------------------------------------------------------------- */
 static BYTE   g_indicate;
 static USHORT g_ind_off, g_ind_owner;
-USHORT        g_ind_drop_busy, g_ind_drop_off, g_ind_tmo, g_ind_reent;
+USHORT        g_ind_drop_busy, g_ind_drop_off, g_ind_tmo, g_ind_reent, g_q_hi, g_hook_n, g_hook_max;
 #define IND_WAIT_ROUNDS 16
 
 UCHAR FAR *ndis_rx_get(USHORT *handle)
@@ -242,6 +259,11 @@ static USHORT g_q_head, g_q_tail;
 
 void ndis_hook_deliver(void)
 {
+   USHORT depth = (USHORT)(g_q_head - g_q_tail);
+
+   g_hook_n++;
+   if (depth > g_q_hi)
+      g_q_hi = depth;                             /* deepest backlog seen when the hook ran                */
    while (g_q_tail != g_q_head) {
       USHORT i = (USHORT)(g_q_tail % RXP_N);
 
@@ -275,6 +297,7 @@ WORD __cdecl ndis_c_sysreq(DWORD param1, DWORD param2, WORD param3, WORD opcode)
       return NDIS_INVALID_PARAMETER;
    if (gSST.status & SSTATUS_BOUND)
       return NDIS_ALREADY_STARTED;
+   ndis_bufs();
    gProtCCT = *(PCCT)param1;
    gProtLDT = *gProtCCT.pLowDisp;
    *(PCCT FAR *)param2 = &gCCT;
@@ -326,6 +349,11 @@ WORD __cdecl ndis_c_genreq(WORD protID, WORD reqHandle, WORD param1, DWORD param
 
 /* Gather the chain into one Ethernet frame and hand it to the station. The data is copied before the
  * call returns, so SUCCESS (no TransmitConfirm) is the right answer. */
+/* Why TransmitChain did not send (status text NDIS): 0 adapter not open, 1 not connected, 2 no transmit buffer, 3 too
+ * big, 4 physical block mapping busy, 5 sta_tx refused (no link / no keys), 6 sta_tx busy, 7 queued */
+USHORT g_tx_calls, g_tx_why[8], g_tx_last_len, g_tx_last_et;
+int    g_tx_last_rc;
+
 WORD __cdecl ndis_c_transmit(WORD protID, WORD reqHandle, PTCBD pTCBufferD)
 {
    USHORT n = 0, i, k, fl;
@@ -333,21 +361,25 @@ WORD __cdecl ndis_c_transmit(WORD protID, WORD reqHandle, PTCBD pTCBufferD)
    int    r;
 
    (void)protID; (void)reqHandle;
-   if (!(gSST.status & SSTATUS_OPEN))
+   g_tx_calls++;
+   if (!(gSST.status & SSTATUS_OPEN)) {
+      g_tx_why[0]++;
       return NDIS_INVALID_FUNCTION;
+   }
    if (!g_joined || !g_txbuf.phys) {
+      g_tx_why[g_joined ? 2 : 1]++;
       gSST.trFrHW++;                             /* no connection: the frame is lost (TCP/IP retries later)  */
       return NDIS_SUCCESS;
    }
    g = DPTR(g_txbuf);
    if (pTCBufferD->immedLen) {
-      if (pTCBufferD->immedLen > MAX_FRAME_SIZE) { gSST.trFrHW++; return NDIS_SUCCESS; }
+      if (pTCBufferD->immedLen > MAX_FRAME_SIZE) { g_tx_why[3]++; gSST.trFrHW++; return NDIS_SUCCESS; }
       rt_movmem((PVOID)g, (PVOID)pTCBufferD->pImmed, pTCBufferD->immedLen);
       n = pTCBufferD->immedLen;
    }
    for (i = 0; i < pTCBufferD->dbCount && i < MAX_DATA_BLOCK_COUNT; i++) {
       k = pTCBufferD->db[i].dataLen;
-      if ((USHORT)(n + k) > MAX_FRAME_SIZE || (USHORT)(n + k) < n) { gSST.trFrHW++; return NDIS_SUCCESS; }
+      if ((USHORT)(n + k) > MAX_FRAME_SIZE || (USHORT)(n + k) < n) { g_tx_why[3]++; gSST.trFrHW++; return NDIS_SUCCESS; }
       if (pTCBufferD->db[i].ptrType == 0) {      /* physical address                                        */
          ULONG ph = *(ULONG FAR *)&pTCBufferD->db[i].pData;
          USHORT s;
@@ -355,10 +387,11 @@ WORD __cdecl ndis_c_transmit(WORD protID, WORD reqHandle, PTCBD pTCBufferD)
          fl = rt_irq_save();
          if (rt_lock_acquire(&g_txsel_lock, (USHORT)(rt_cpu_id() + 1))) {
             rt_irq_restore(fl);
+            g_tx_why[4]++;
             gSST.trFrHW++;
             return NDIS_SUCCESS;
          }
-         s = scr_map(SCR_C, ph, k);
+         s = scr_map(SCR_TX, ph, k);
          if (s)
             rt_movmem((PVOID)(g + n), MAKEP(s, 0), k);
          rt_lock_release(&g_txsel_lock);
@@ -369,15 +402,22 @@ WORD __cdecl ndis_c_transmit(WORD protID, WORD reqHandle, PTCBD pTCBufferD)
       n = (USHORT)(n + k);
    }
    r = sta_tx(g, n);
+   g_tx_last_rc = r;
+   g_tx_last_len = n;
+   g_tx_last_et = (USHORT)((g[12] << 8) | g[13]);
    if (r == 0) {
+      g_tx_why[7]++;
       gSST.trFrames++;
       gSST.trBytes += n;
       if (g[0] & STATION_ADDR_MC)
          gSST.trBCFrames++;
       return NDIS_SUCCESS;
    }
-   if (r == -2)
+   if (r == -2) {
+      g_tx_why[6]++;
       return NDIS_OUT_OF_RESOURCE;
+   }
+   g_tx_why[5]++;
    gSST.trFrHW++;
    return NDIS_SUCCESS;
 }
@@ -430,7 +470,8 @@ USHORT g_lannum = 1;
 #define PL_MAX 600
 static char   g_pl[PL_MAX + 1];
 static USHORT g_pln;
-static UCHAR  g_in_tcpip;
+static UCHAR  g_in_tcpip, g_in_nif;
+UCHAR         g_cfgmac;
 static char   g_pbuf[256];
 
 static char lc(char c) { return (char)((c >= 'A' && c <= 'Z') ? c + 32 : c); }
@@ -459,9 +500,10 @@ static void pi_line(char *l)
       while (*e && *e != ']') e++;
       while (e > l && (e[-1] == ' ' || e[-1] == '\t')) e--;
       g_in_tcpip = (UCHAR)eqn(l, (USHORT)(e - l), "tcpip_nif");
+      g_in_nif = (UCHAR)eqn(l, (USHORT)(e - l), "qca6174_nif");
       return;
    }
-   if (!g_in_tcpip)
+   if (!g_in_tcpip && !g_in_nif)
       return;
    k = l;
    p = l;
@@ -470,6 +512,32 @@ static void pi_line(char *l)
       return;
    e = p;
    while (e > k && (e[-1] == ' ' || e[-1] == '\t')) e--;
+   if (g_in_nif) {
+      static UCHAR m[6];
+      USHORT n = 0;
+      char   c;
+
+      if (!eqn(k, (USHORT)(e - k), "netaddress"))
+         return;
+      for (v = p + 1; *v && n < 12; v++) {
+         c = *v;
+         if (c >= '0' && c <= '9') c = (char)(c - '0');
+         else if (c >= 'a' && c <= 'f') c = (char)(c - 'a' + 10);
+         else if (c >= 'A' && c <= 'F') c = (char)(c - 'A' + 10);
+         else continue;
+         if (n & 1) m[n >> 1] = (UCHAR)((m[n >> 1] << 4) | c);
+         else       m[n >> 1] = (UCHAR)c;
+         n++;
+      }
+      if (n == 12) {
+         for (n = 0; n < 6; n++) g_mymac[n] = m[n];
+         ndis_set_mac(g_mymac);
+         g_cfgmac = 1;
+      }
+      return;
+   }
+   if (!g_in_tcpip)
+      return;
    if (!eqn(k, (USHORT)(e - k), "bindings"))
       return;
    v = p + 1;
@@ -506,6 +574,7 @@ void ndis_find_lan(void)
       return;
    g_pln = 0;
    g_in_tcpip = 0;
+   g_in_nif = 0;
    while (DosRead(h, (PVOID)g_pbuf, sizeof(g_pbuf), &got) == 0 && got) {
       for (i = 0; i < got; i++) {
          c = g_pbuf[i];
@@ -522,4 +591,28 @@ void ndis_find_lan(void)
       pi_line(g_pl);
    }
    DosClose(h);
+}
+
+/* For the status text */
+USHORT ndis_state(USHORT what)
+{
+   USHORT i, n = 0;
+
+   switch (what) {
+   case 0:  return (USHORT)gSST.status;
+   case 1:  return gSST.filter;
+   case 2:  return (USHORT)gSST.trFrames;
+   case 3:  return (USHORT)gSST.trFrHW;
+   case 4:  return (USHORT)gSST.recFrames;
+   case 5:  return (USHORT)gSST.recFrNoBuff;
+   case 6:  for (i = 0; i < RXP_N; i++) if (g_rxp_busy[i] != 2) n++;
+            return n;                                  /* receive buffers that exist                             */
+   case 7:  return (USHORT)(g_txbuf.phys != 0UL);
+   case 8:  return g_ndis_reg;
+   case 9:  return g_q_hi;
+   case 10: return g_hook_n;
+   case 11: return g_ind_drop_busy;
+   case 12: return g_ind_drop_off;
+   }
+   return 0;
 }

@@ -256,6 +256,7 @@ _rt_dh_phys_to_gdt:
         mov     ax, [bp+6]
         mov     cx, [bp+8]
         mov     si, [bp+10]
+        xor     dh, dh                          ; DH = 0: read/write access (do not leave leftover bits there)
         mov     dl, 0x2E
         call    far [_rt_devhelp]
         jc      .bad
@@ -879,5 +880,31 @@ _qc_dh_free_phys:
 .out:
         pop     di
         pop     si
+        pop     bp
+        ret
+
+; void qc_speaker(USHORT on): the PC speaker at about 1 kHz (PIT channel 2 divisor 1193, port 61h bits 1:0).
+; Boot diagnostics only (qc_step in qc_strat.c): a driver that hangs at INIT cannot print anything.
+global _qc_speaker
+_qc_speaker:
+        push    bp
+        mov     bp, sp
+        cmp     word [bp+4], 0
+        je      .off
+        mov     al, 0xB6                        ; channel 2, lobyte/hibyte, square wave
+        out     0x43, al
+        mov     al, 0xA9                        ; 1193 = 04A9h
+        out     0x42, al
+        mov     al, 0x04
+        out     0x42, al
+        in      al, 0x61
+        or      al, 0x03
+        out     0x61, al
+        jmp     short .done
+.off:
+        in      al, 0x61
+        and     al, 0xFC
+        out     0x61, al
+.done:
         pop     bp
         ret

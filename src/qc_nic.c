@@ -91,6 +91,10 @@ static ULONG rd32(UCHAR FAR *p)
 }
 
 static ULONG g_infra = 1, g_authmode, g_encstat;
+static UCHAR g_wbssid[6];                      /* BSSID the supplicant asked for (OID_802_11_BSSID)             */
+static UCHAR g_wany = 1;                       /* ...or ff:ff:ff:ff:ff:ff = any                                  */
+static UCHAR g_pj;                             /* a (re)join is pending, done by a later request                  */
+static ULONG g_pj_due;
 
 static ULONG ch_khz(UCHAR c)
 {
@@ -147,6 +151,13 @@ static USHORT build_bssid_list(UCHAR FAR *out, USHORT room)
 }
 
 static ULONG  g_st, g_olen;
+
+/* Log of the last GenMAC requests, shown in the status text: what the Wireless LAN Monitor / the supplicant asks
+ * and what the driver answered. g_ioctl_n counts every DosDevIOCtl that reached the strategy routine. */
+#define OIDLOG_N 16
+ULONG  g_oidlog[OIDLOG_N], g_oidlog_st[OIDLOG_N];
+UCHAR  g_oidlog_set[OIDLOG_N];
+USHORT g_oidlog_n, g_ioctl_n, g_bad_n, g_bad_cf;
 static ULONG  g_seen[32];
 static USHORT g_nseen;
 static char   g_desc[] = "Qualcomm Atheros QCA6174 802.11ac PCIe WLAN (OS/2 native)";
@@ -190,9 +201,12 @@ static void oid_request(int is_set, ULONG oid, UCHAR FAR *dat, USHORT dlen)
          return;
       case 0x09: if (is_set) goto unsupp; val = GENMAC_VERSION; goto put4;
       case 0x0B: if (!is_set) goto unsupp; return;                            /* 802.1X state        */
-      case 0x0C: if (is_set) goto unsupp; val = 0UL; goto put4;               /* EAPOL frames waiting */
-      case 0x0D: if (is_set) goto unsupp; g_olen = 0; return;                 /* next EAPOL frame    */
-      case 0x0E: if (!is_set) goto unsupp; g_st = NDIS_STATUS_FAILURE; return;   /* send EAPOL: phase 2 */
+      case 0x0C: if (is_set) goto unsupp; val = (ULONG)sta_eapol_count(); goto put4;   /* EAPOL frames waiting */
+      case 0x0D: if (is_set) goto unsupp; g_olen = sta_eapol_get(dat, dlen); return;  /* next EAPOL frame    */
+      case 0x0E:                                                               /* send an EAPOL frame  */
+         if (!is_set) goto unsupp;
+         if (sta_eapol_tx(dat, dlen)) g_st = NDIS_STATUS_FAILURE;
+         return;
       default:   goto unsupp;
       }
    }
@@ -201,11 +215,12 @@ static void oid_request(int is_set, ULONG oid, UCHAR FAR *dat, USHORT dlen)
       if (oid == OID_802_11_INFRASTRUCTURE_MODE) { val = g_infra; goto put4; }
       if (oid == OID_802_11_AUTHENTICATION_MODE) { val = g_authmode; goto put4; }
       if (oid == OID_802_11_ENCRYPTION_STATUS) {
-         /* "enabled" reads back as the KeyAbsent value while no key is installed: WEP 0->2, TKIP 4->5,
-          * CCMP 6->7 (the supplicant's capability probe depends on it) */
+         /* "enabled" reads back as the KeyAbsent value only while the pairwise key is not installed: WEP 0->2,
+          * TKIP 4->5, CCMP 6->7 (the supplicant's capability probe depends on it). Once the key is in, the real
+          * value (4 / 6) must be returned, or the supplicant waits for the key for ever. */
          val = g_encstat;
          if (val == 0UL) val = 2UL;
-         else if (val == 4UL || val == 6UL) val += 1UL;
+         else if ((val == 4UL || val == 6UL) && !(g_joined && g_ptk_on)) val += 1UL;
          goto put4;
       }
       if (oid == OID_802_3_CURRENT_ADDRESS || oid == OID_802_3_PERMANENT_ADDRESS) {
@@ -221,23 +236,57 @@ static void oid_request(int is_set, ULONG oid, UCHAR FAR *dat, USHORT dlen)
          g_olen = build_bssid_list(dat, dlen);
          return;
       }
-      if (oid == OID_802_11_RSSI || oid == OID_802_11_BSSID) {
-         g_st = NDIS_STATUS_ADAPTER_NOT_READY;    /* not associated                                          */
+      if (oid == OID_802_11_RSSI) {
+         if (!g_joined) { g_st = NDIS_STATUS_ADAPTER_NOT_READY; return; }
+         val = (ULONG)(long)sta_rssi();
+         goto put4;
+      }
+      if (oid == OID_802_11_BSSID) {
+         if (!g_joined) { g_st = NDIS_STATUS_ADAPTER_NOT_READY; return; }
+         g_olen = 6;
+         if (dlen < 6) { g_st = NDIS_STATUS_BUFFER_TOO_SHORT; return; }
+         for (i = 0; i < 6; i++)
+            dat[i] = g_jbssid[i];
          return;
       }
-      if (oid == OID_802_11_SSID) {
+      if (oid == OID_802_11_SSID) {                    /* ULONG length + 32 bytes; empty when not joined       */
          g_olen = 36;
          if (dlen < 36) { g_st = NDIS_STATUS_BUFFER_TOO_SHORT; return; }
          rt_setmem(dat, 0, 36);
+         if (g_joined) {
+            wr32(dat, (ULONG)g_jslen);
+            for (i = 0; i < g_jslen; i++)
+               dat[4 + i] = g_jssid[i];
+         }
          return;
       }
-      if (oid == OID_802_11_ASSOCIATION_INFORMATION) {
-         g_olen = 40;
-         if (dlen < 40) { g_st = NDIS_STATUS_BUFFER_TOO_SHORT; return; }
-         rt_setmem(dat, 0, 40);
-         wr32(dat + 0, 40UL);
-         wr32(dat + 20, 40UL);
-         wr32(dat + 36, 40UL);
+      if (oid == OID_802_11_ASSOCIATION_INFORMATION) { /* NDIS_802_11_ASSOCIATION_INFORMATION + request/response IEs */
+         USHORT rq = g_joined ? g_jreqlen : 0;
+         USHORT rs = g_joined ? g_jreslen : 0;
+         USHORT tot = (USHORT)(40 + rq + rs);
+
+         g_olen = tot;
+         if (dlen < tot) { g_st = NDIS_STATUS_BUFFER_TOO_SHORT; return; }
+         rt_setmem(dat, 0, tot);
+         wr32(dat + 0, (ULONG)tot);                    /* Length                                              */
+         wr32(dat + 16, (ULONG)rq);                    /* RequestIELength                                     */
+         wr32(dat + 20, 40UL);                         /* OffsetRequestIEs                                    */
+         wr32(dat + 32, (ULONG)rs);                    /* ResponseIELength                                    */
+         wr32(dat + 36, (ULONG)(40 + rq));             /* OffsetResponseIEs                                   */
+         if (g_joined) {
+            dat[4] = 7;                                /* AvailableRequestFixedIEs: cap | listen | AP         */
+            dat[6] = 0x31; dat[7] = 0x04;              /* Capabilities                                        */
+            dat[8] = 10;                               /* ListenInterval                                      */
+            for (i = 0; i < 6; i++)
+               dat[10 + i] = g_jbssid[i];
+            dat[24] = 7;                               /* AvailableResponseFixedIEs: cap | status | aid       */
+            dat[26] = (UCHAR)(g_jcaps & 0xFF); dat[27] = (UCHAR)(g_jcaps >> 8);
+            dat[30] = (UCHAR)(g_jaid & 0xFF);  dat[31] = (UCHAR)(g_jaid >> 8);
+            for (i = 0; i < rq; i++)
+               dat[40 + i] = g_jreq[i];
+            for (i = 0; i < rs; i++)
+               dat[40 + rq + i] = g_jres[i];
+         }
          return;
       }
       if (oid == OID_802_11_POWER_MODE)        { val = 0UL; goto put4; }
@@ -284,8 +333,10 @@ static void oid_request(int is_set, ULONG oid, UCHAR FAR *dat, USHORT dlen)
    /* SET */
    if (oid == OID_802_11_BSSID_LIST_SCAN) {
       if (!g_hw_ready) { g_st = NDIS_STATUS_ADAPTER_NOT_READY; return; }
-      if (!(g_nnet && g_scan_end && (long)(qc_ms() - g_scan_end) < 4000L)) {   /* 4 s old scan is still good */
+      /* joined: stay on the AP's channel; a scan less than 4 s old is still good */
+      if (!g_joined && !(g_nnet && g_scan_end && (long)(qc_ms() - g_scan_end) < 4000L)) {
          g_scanning = 1;
+         sta_age();
          if (wmi_scan() != 0)
             tstr("[scan failed]");
          g_scan_end = qc_ms();
@@ -298,21 +349,77 @@ static void oid_request(int is_set, ULONG oid, UCHAR FAR *dat, USHORT dlen)
    if (oid == OID_802_11_INFRASTRUCTURE_MODE) { if (dlen >= 4) g_infra = rd32(dat); return; }
    if (oid == OID_802_11_AUTHENTICATION_MODE) { if (dlen >= 4) g_authmode = rd32(dat); return; }
    if (oid == OID_802_11_ENCRYPTION_STATUS)   { if (dlen >= 4) g_encstat = rd32(dat); return; }
-   if (oid == OID_802_11_BSSID || oid == OID_802_11_POWER_MODE || oid == OID_802_11_PRIVACY_FILTER ||
-       oid == OID_802_11_PMKID || oid == OID_GEN_CURRENT_PACKET_FILTER || oid == OID_802_3_MULTICAST_LIST ||
-       oid == OID_802_11_DISASSOCIATE || oid == OID_802_11_REMOVE_KEY)
-      return;                                     /* accepted; nothing to undo while not associated          */
-   if (oid == OID_802_11_SSID) {
-      ULONG sl = (dlen >= 4) ? rd32(dat) : 0UL;
-
-      if (sl == 0UL)
-         return;                                  /* "leave": we are not joined                              */
-      tstr("[join: not implemented in phase 1]");
-      g_st = NDIS_STATUS_FAILURE;
+   if (oid == OID_802_11_BSSID) {                      /* remember the AP the supplicant chose                  */
+      if (dlen >= 6) {
+         g_wany = 1;
+         for (i = 0; i < 6; i++) {
+            g_wbssid[i] = dat[i];
+            if (dat[i] != 0xFF) g_wany = 0;
+         }
+      }
       return;
    }
-   if (oid == OID_802_11_ADD_KEY) {
-      g_st = NDIS_STATUS_FAILURE;
+   if (oid == OID_802_11_POWER_MODE || oid == OID_802_11_PRIVACY_FILTER ||
+       oid == OID_802_11_PMKID || oid == OID_GEN_CURRENT_PACKET_FILTER || oid == OID_802_3_MULTICAST_LIST)
+      return;                                          /* accepted; nothing to do                               */
+   if (oid == OID_802_11_DISASSOCIATE) {
+      g_pj = 0;
+      sta_leave();
+      return;
+   }
+   if (oid == OID_802_11_SSID) {                       /* join (or leave when the SSID is empty)                */
+      ULONG sl = (dlen >= 4) ? rd32(dat) : 0UL;
+      USHORT open;
+
+      if (sl == 0UL) { g_pj = 0; sta_leave(); return; }
+      if (dlen < 36 || sl > 32UL) { sta_leave(); g_st = NDIS_STATUS_FAILURE; return; }
+      for (i = 0; i < (USHORT)sl; i++)
+         if (dat[4 + i] < 0x20)
+            break;
+      if (i < (USHORT)sl) {                            /* control bytes: the supplicant's random "disconnect" SSID */
+         g_pj = 0;
+         sta_leave();
+         return;
+      }
+      /* an unencrypted network (Open or AutoSwitch with encryption disabled), else WPA2-PSK with CCMP */
+      open = (USHORT)((g_authmode == 0UL || g_authmode == 2UL) && g_encstat == 1UL);
+      if (!open && (g_authmode != 7UL || g_encstat != 6UL)) {
+         g_jfail = 6;                                  /* wrong security mode set by the caller                 */
+         g_st = NDIS_STATUS_FAILURE;
+         return;
+      }
+      sta_set_want(dat + 4, (UCHAR)sl, open);
+      if (g_joined) {
+         /* The supplicant notices a (re)association only when the BSSID it polls CHANGES, and it is a single
+          * process: it cannot poll while it sits inside this request. So return at once, stay disconnected for
+          * a moment and do the join from a later request (same as the RTL driver). */
+         sta_leave();
+         g_pj_due = qc_ms() + 1500UL;
+         g_pj = 1;
+         return;
+      }
+      g_pj = 0;
+      if (sta_join(g_wany ? (UCHAR FAR *)0 : (UCHAR FAR *)g_wbssid, g_wany))
+         g_st = NDIS_STATUS_FAILURE;
+      return;
+   }
+   if (oid == OID_802_11_ADD_KEY) {                    /* NDIS_802_11_KEY: len@0 index@4 keylen@8 bssid@12 rsc@24 key@32 */
+      ULONG ki, kl;
+
+      if (dlen < 48) { g_st = NDIS_STATUS_BUFFER_TOO_SHORT; return; }
+      ki = rd32(dat + 4);
+      kl = rd32(dat + 8);
+      if (kl != 16UL) { g_st = NDIS_STATUS_NOT_SUPPORTED; return; }       /* CCMP only                          */
+      if (sta_key_add(dat + 32, 16, (USHORT)((ki & 0x40000000UL) ? 1 : 0), (UCHAR)(ki & 0xFFUL)))
+         g_st = NDIS_STATUS_FAILURE;
+      return;
+   }
+   if (oid == OID_802_11_REMOVE_KEY) {                 /* NDIS_802_11_REMOVE_KEY: len@0 index@4 bssid@8          */
+      ULONG ki;
+
+      if (dlen < 8) { g_st = NDIS_STATUS_BUFFER_TOO_SHORT; return; }
+      ki = rd32(dat + 4);
+      sta_key_remove((USHORT)((ki & 0x40000000UL) ? 1 : 0), (UCHAR)(ki & 0xFFUL));
       return;
    }
    note_unsupp(1, oid);
@@ -340,8 +447,11 @@ void qc_genmac_ioctl(RP_GENIOCTL FAR *rp)
    USHORT dlen, off;
    int    fast;
 
+   g_ioctl_n++;
    if (rp->Category != GENMAC_CATEGORY ||
        (rp->Function != GENMAC_OID_GET && rp->Function != GENMAC_OID_SET)) {
+      g_bad_n++;
+      g_bad_cf = (USHORT)((rp->Category << 8) | rp->Function);   /* an IOCtl that is not a GenMAC OID request    */
       rp->rph.Status |= STDON | STERR | ERROR_I24_BAD_COMMAND;
       return;
    }
@@ -374,10 +484,25 @@ void qc_genmac_ioctl(RP_GENIOCTL FAR *rp)
       nic_lock();
       if (!g_hw_ready && !g_hw_failed && g_fwblob.done && g_bdblob.done)
          ath_up();                                /* the chip starts on the first GenMAC request             */
-      if (g_hw_ready)
+      if (g_hw_ready) {
          ath_service();
+         sta_poll();                              /* the AP is gone: clean up                                 */
+         if (g_pj && !g_scanning && (long)(qc_ms() - g_pj_due) >= 0L) {
+            g_pj = 0;                             /* the deferred (re)join, now that the drop has been visible */
+            if (!g_joined)
+               sta_join(g_wany ? (UCHAR FAR *)0 : (UCHAR FAR *)g_wbssid, g_wany);
+         }
+      }
    }
    oid_request(rp->Function == GENMAC_OID_SET, oid, dat, dlen);
+   {
+      USHORT k = (USHORT)(g_oidlog_n % OIDLOG_N);
+
+      g_oidlog[k] = oid;
+      g_oidlog_st[k] = g_st;
+      g_oidlog_set[k] = (UCHAR)(rp->Function == GENMAC_OID_SET);
+      g_oidlog_n++;
+   }
    if (!fast)
       nic_unlock();
    par[1] = g_st;

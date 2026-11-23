@@ -15,6 +15,6 @@ if "%1"=="" goto all
 for %%f in (%1 %2 %3 %4 %5 %6 %7 %8 %9) do wcc -bt=os2 -2 -obilmr -s -ze -zl -zq -zff -zgf -ms -wx -zp1 -zu -j %%f.c
 goto link
 :all
-for %%f in (qc_strat qc_pci qc_mem qc_fw ath_ce ath_boot ath_htc ath_wmi ath_sta qc_ndis qc_nic qc_dbg) do wcc -bt=os2 -2 -obilmr -s -ze -zl -zq -zff -zgf -ms -wx -zp1 -zu -j %%f.c
+for %%f in (qc_strat qc_pci qc_mem qc_fw ath_ce ath_boot ath_htc ath_wmi ath_htt ath_sta qc_ndis qc_nic qc_dbg) do wcc -bt=os2 -2 -obilmr -s -ze -zl -zq -zff -zgf -ms -wx -zp1 -zu -j %%f.c
 :link
 wlink @qca6174.lnk

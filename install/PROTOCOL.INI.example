@@ -15,3 +15,7 @@
 [QCA6174_NIF]
 
    DriverName = WRND32$
+
+   ; Your adapter MAC (shown as MAC= in the status text). Required: TCP/IP copies the address at bind time,
+   ; before the firmware has told the driver the real one.
+   NETADDRESS = "B068E6709817"

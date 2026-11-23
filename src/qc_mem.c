@@ -8,7 +8,8 @@
  */
 #include "qca.h"
 
-#define NCHUNK      12                       /* 12 x 64 KB = 768 KB of DMA memory                           */
+#define NCHUNK      16                       /* 16 x 64 KB = 1 MB of DMA memory                             */
+#define NSCR        5                        /* scratch selectors (SCR_A .. SCR_TX in qca.h)                */
 #define CHUNK_TOP   0xFFF0U                  /* usable bytes per chunk (selector limit 0FFFEh)              */
 
 extern USHORT g_barsel[];
@@ -18,23 +19,23 @@ static ULONG  g_cphys[NCHUNK];
 static USHORT g_cused[NCHUNK];
 static USHORT g_cmapped[NCHUNK];
 static USHORT g_nchunk;
-static USHORT g_scr[3];
+static USHORT g_scr[NSCR];
 
 BLOB g_fwblob, g_bdblob;
 
 /* INIT: every GDT selector the driver will ever need, and the DMA chunks. */
 int mem_init(void)
 {
-   static USHORT sels[32 + NCHUNK + 3];     /* passed by address to DevHelp: static (DS), not stack        */
+   static USHORT sels[32 + NCHUNK + NSCR];     /* passed by address to DevHelp: static (DS), not stack        */
    USHORT i;
 
-   if (rt_dh_alloc_gdt(sels, (USHORT)(32 + NCHUNK + 3)))
+   if (rt_dh_alloc_gdt(sels, (USHORT)(32 + NCHUNK + NSCR)))
       return -1;
    for (i = 0; i < 32; i++)
       g_barsel[i] = sels[i];
    for (i = 0; i < NCHUNK; i++)
       g_csel[i] = sels[32 + i];
-   for (i = 0; i < 3; i++)
+   for (i = 0; i < NSCR; i++)
       g_scr[i] = sels[32 + NCHUNK + i];
 
    for (i = 0; i < NCHUNK; i++) {
@@ -44,7 +45,8 @@ int mem_init(void)
          break;
       g_cphys[i] = ph;
       g_cused[i] = 0;
-      g_cmapped[i] = (USHORT)(rt_dh_phys_to_gdt(ph, 0xFFFF, g_csel[i]) == 0);
+      g_cmapped[i] = 0;                          /* mapped on first use (chunk_ready), at task time: a write through
+                                                  * a selector mapped here hung the boot (first report)         */
    }
    g_nchunk = i;
    return g_nchunk ? 0 : -2;

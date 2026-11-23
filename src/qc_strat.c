@@ -21,7 +21,41 @@ static struct {
    USHORT count;
    PSZ    text;
 } gInitMsg = { MSG_REPLACEMENT_STRING, 1, 0 };
-static USHORT g_opt_v, g_opt_q, g_opt_w, g_opt_bad;
+static USHORT g_opt_v, g_opt_q, g_opt_w, g_opt_bad, g_opt_b, g_opt_stop;
+
+/* Boot diagnostics for a machine without a serial port. With /B the driver beeps the number of the step it has
+ * reached (n short beeps, then a pause), so a hang can be located by counting the last group. /Sn finishes INIT
+ * successfully after step n without doing the rest, to find the step that makes the boot hang.
+ *   1 arguments read          4 BAR0 windows mapped            8 INIT COMPLETE entered
+ *   2 DMA memory and selectors 5 NDIS MAC registered           9 INIT COMPLETE done
+ *   3 PCI scan                6 PROTOCOL.INI read; 7 INIT done */
+void qc_step(USHORT n)
+{
+   USHORT i;
+
+   tcom_always('['); tcom_always('S'); tcom_always((char)('0' + n / 10)); tcom_always((char)('0' + n % 10));
+   tcom_always(']');
+   if (!g_opt_b)
+      return;
+   if (n >= 10) {                                    /* sub-steps: one LONG beep, then (n - 10) short ones      */
+      qc_speaker(1);
+      for (i = 0; i < 6; i++)
+         qc_iodelay(60000);
+      qc_speaker(0);
+      qc_iodelay(60000);
+      n = (USHORT)(n - 10);
+   }
+   for (i = 0; i < n; i++) {
+      qc_speaker(1);
+      qc_iodelay(50000);
+      qc_speaker(0);
+      qc_iodelay(50000);
+   }
+   for (i = 0; i < 6; i++)                          /* pause between groups                                    */
+      qc_iodelay(60000);
+}
+
+#define STOP_HERE(n)  (g_opt_stop == (n))
 
 static void say(PSZ s)
 {
@@ -78,6 +112,8 @@ static void parse_args(PSZ p)
          if (c == 'V')      g_opt_v = 1;
          else if (c == 'Q') g_opt_q = 1;
          else if (c == 'W') g_opt_w = 1;
+         else if (c == 'B') g_opt_b = 1;
+         else if (c == 'S' && p[2] >= '1' && p[2] <= '9') g_opt_stop = (USHORT)(p[2] - '0');
          else if (c == 'A' && (p[2] & 0xDF) == 'A') ;
          else               g_opt_bad = 1;
       }
@@ -96,6 +132,11 @@ static void rt_init(RP_INIT FAR *rp)
    rp->Data1 = 0;
    rp->p1.End.CodeEnd = rt_code_end();
    rp->p1.End.DataEnd = rt_data_end();
+   qc_step(1);
+   if (STOP_HERE(1)) {
+      rp->rph.Status |= STDON;
+      return;
+   }
 
    if (mem_init()) {
       say("QCA6174: could not be loaded: no memory for DMA buffers or selectors.");
@@ -103,6 +144,11 @@ static void rt_init(RP_INIT FAR *rp)
       return;
    }
    tcom_always('I'); tcom_always('1');
+   qc_step(2);
+   if (STOP_HERE(2)) {
+      rp->rph.Status |= STDON;
+      return;
+   }
    if (pci_find()) {
       say("QCA6174: could not be loaded: no Qualcomm Atheros QCA6174 (168C:003E) found.");
       rp->rph.Status |= STDON | STERR | ERROR_I24_GEN_FAILURE;
@@ -113,14 +159,34 @@ static void rt_init(RP_INIT FAR *rp)
       rp->rph.Status |= STDON | STERR | ERROR_I24_GEN_FAILURE;
       return;
    }
-   bar_map();                                      /* retried at bring-up if PhysToGDTSelector refuses here */
+   qc_step(3);
+   if (STOP_HERE(3)) {
+      rp->rph.Status |= STDON;
+      return;
+   }
+   /* BAR0 is mapped at bring-up (task time), not here */
    tcom_always('I'); tcom_always('2');
+   qc_step(4);
+   if (STOP_HERE(4)) {
+      rp->rph.Status |= STDON;
+      return;
+   }
    nrc = ndis_init();
+   qc_step(5);
+   if (STOP_HERE(5)) {
+      rp->rph.Status |= STDON;
+      return;
+   }
    ndis_find_lan();
    tcom_always('I'); tcom_always('3');
+   qc_step(6);
+   if (STOP_HERE(6)) {
+      rp->rph.Status |= STDON;
+      return;
+   }
 
    if (g_opt_bad)
-      say("QCA6174: warning - unknown option ignored (valid: /V /Q /W /AA).");
+      say("QCA6174: warning - unknown option ignored (valid: /V /Q /W /B /S1../S9 /AA).");
    if (g_opt_v) {
       say("QCA6174: Qualcomm Atheros QCA6174 802.11ac PCIe WLAN driver for OS/2.");
       say("QCA6174: Version " DRV_VERSION "  Build " DRV_BUILD "  Date " __DATE__ " " __TIME__ ".");
@@ -130,16 +196,19 @@ static void rt_init(RP_INIT FAR *rp)
    }
    if (g_opt_w)
       say("QCA6174: the boot pauses 30 seconds after all drivers are loaded.");
+   qc_step(7);
    rp->rph.Status |= STDON;
 }
 
 static void rt_initdone(RPH FAR *rp)
 {
    USHORT i;
+   qc_step(8);
 
    if (g_opt_w && !g_opt_q)
       for (i = 0; i < 30 * 20; i++)
          qc_msleep(50);
+   qc_step(9);
    rp->Status |= STDON;
 }
 

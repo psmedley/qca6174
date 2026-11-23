@@ -11,7 +11,7 @@
  *   1   in     512 x 2048 HTC/HTT ctrl  32 x 2048 (31 buffers posted)
  *   2   in     128 x 2048 WMI events    32 x 2048 (31 buffers posted)
  *   3   out    32 x 2048  WMI commands  32 ring entries, 16 x 2048 slots
- *   4   out    8192 x 256 HTT messages  32 x 256 (phase 1: HTT is connected but not used)
+ *   4   out    8192 x 256 HTT messages  32 x 256 (two entries per data frame) + 4 control message slots
  *   5   -      overridden to nothing for QCA6174 (ath10k_pci_override_ce_config)
  *   7   both   2 x 2048   diagnostic window (polled)
  */
@@ -54,7 +54,7 @@ static CEATTR g_attr[CE_COUNT] = {
    {  0, 2048, 32, 31, 0 },
    {  0, 2048, 32, 31, 0 },
    { 32, 2048,  0, 16, 0 },
-   { 32,  256,  0,  0, CE_ATTR_DIS_INTR },
+   { 32,  256,  0,  4, CE_ATTR_DIS_INTR },          /* 4 slots for HTT control messages; data frames use ath_htt.c buffers */
    {  0,    0,  0,  0, 0 },
    {  0,    0,  0,  0, 0 },
    {  2, DIAG_LIMIT, 2, 0, 0x10 }             /* CE_ATTR_POLL                                               */

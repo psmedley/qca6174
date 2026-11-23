@@ -63,7 +63,8 @@ static USHORT g_wr_sfn = 0xFFFF, g_wr_kind, g_wr_err;
 static char   g_cmd[82];
 static USHORT g_cmdn;
 static USHORT g_rd_sfn = 0xFFFF, g_rd_done;
-static ULONG  g_dbg_val;
+static ULONG  g_dbg_val, g_dbg_addr;
+static USHORT g_dbg_n;                           /* debug reads done                                           */
 
 static ULONG hexval(char *p)
 {
@@ -92,18 +93,34 @@ static void run_cmd(void)
       if (!g_hw_ready) { g_hw_failed = 0; ath_up(); }
    } else if (c[0] == 's' && c[1] == 'c') {
       if (g_hw_ready) wmi_scan();
+   } else if (c[0] == 'j' && c[1] == 'o') {                  /* "join <ssid>": an UNENCRYPTED network, from the scan table */
+      if (g_hw_ready) {
+         char *q = c + 2;
+         UCHAR n = 0;
+
+         while (*q == ' ') q++;
+         while (q[n] && n < 32) n++;
+         sta_set_want((UCHAR FAR *)q, n, 1);
+         tstr("[join rc "); th16((USHORT)(sta_join(0, 1) & 0xFFFF)); tstr(" fail "); th16(g_jfail); tcom(']'); tnl();
+      }
+   } else if (c[0] == 'l' && c[1] == 'e') {
+      if (g_hw_ready) sta_leave();
    } else if (c[0] == 'r' && c[1] == ' ') {
       if (bar_map() == 0) {
          ULONG a = hexval(c + 2);
 
+         g_dbg_addr = a;
          g_dbg_val = ath_rd(a);
+         g_dbg_n++;
          tstr("[r "); th32(a); tcom('='); th32(g_dbg_val); tcom(']'); tnl();
       }
    } else if (c[0] == 'd' && c[1] == ' ') {
       if (g_hw_ready) {
          ULONG a = hexval(c + 2);
 
+         g_dbg_addr = a;
          g_dbg_val = diag_rd32(a);
+         g_dbg_n++;
          tstr("[d "); th32(a); tcom('='); th32(g_dbg_val); tcom(' '); th16((USHORT)g_diag_rc); tcom(']'); tnl();
       }
    }
@@ -129,6 +146,9 @@ void qc_dev_close(USHORT sfn)
       th32(b->len);
       tstr(g_wr_err ? " FAILED]" : " loaded]");
       tnl();
+      /* Both files are in: start the chip now, so the real MAC is known before the protocol binds. */
+      if (!g_wr_err && !g_hw_ready && !g_hw_failed && g_fwblob.done && g_bdblob.done)
+         ath_up();
    } else if (g_wr_kind == K_TEXT && g_cmdn) {
       g_cmd[g_cmdn] = 0;
       run_cmd();
@@ -194,7 +214,7 @@ void qc_dev_write(USHORT sfn, ULONG phys, USHORT n)
 }
 
 /* ---- status text ----------------------------------------------------------------------------------- */
-static char   g_txt[900];
+static char   g_txt[3200];
 static USHORT g_tn;
 
 static void ps(const char *s) { while (*s && g_tn < sizeof(g_txt) - 1) g_txt[g_tn++] = *s++; }
@@ -215,8 +235,20 @@ static void ph(ULONG v, USHORT digits)
 }
 static void nl(void) { ps("\r\n"); }
 
+extern USHORT g_pps_rx_max, g_pps_tx_max, g_lat_max, g_lat_n;
+extern ULONG g_lat_sum;
 extern USHORT g_wmi_events, g_mgmt_rx, g_htc_drops, g_svc_runs, g_hook_runs;
+extern USHORT g_rx_why[8], g_tx_calls, g_tx_why[8], g_tx_last_len, g_tx_last_et;
+extern int    g_tx_last_rc;
+USHORT ndis_state(USHORT what);
+extern UCHAR  g_rx_decap_last, g_rx_fc_last;
+extern ULONG  g_rx_attn_last;
+extern ULONG  g_oidlog[], g_oidlog_st[];
+extern UCHAR  g_oidlog_set[], g_mg_ch[15];
+extern USHORT g_oidlog_n, g_ioctl_n, g_bad_n, g_bad_cf;
+extern USHORT g_mg_5g, g_mg_drop, g_mg_laststatus, g_scan_visit[3], g_scan_events, g_scan_last_type;
 extern ULONG  g_fw_build, g_eeprom_rd;
+extern USHORT g_nbarsel;
 extern char  *ath_board_name(void);
 
 static void build_status(void)
@@ -236,11 +268,59 @@ static void build_status(void)
    ps(" CHIP="); ph(g_chip_id, 8); ps(" TARGET="); ph(g_target_ver, 8); ps(" RD="); ph(g_eeprom_rd, 4); nl();
    ps("MAC=");
    for (i = 0; i < 6; i++) { ph(g_mymac[i], 2); if (i < 5) ps(":"); }
+   ps(g_cfgmac ? " (PROTOCOL.INI NETADDRESS)" : " (firmware; set NETADDRESS in PROTOCOL.INI)"); nl();
+   ps("FWMAC=");
+   for (i = 0; i < 6; i++) { ph(g_wmi_mac[i], 2); if (i < 5) ps(":"); }
    nl();
    ps("NETS="); ph(g_nnet, 4); ps(" IRQS="); ph(g_irq_count, 4); ps(" SPUR="); ph(g_irq_spurious, 4);
    ps(" HOOK="); ph(g_hook_runs, 4); ps(" SVC="); ph(g_svc_runs, 4); ps(" WMIEV="); ph(g_wmi_events, 4);
    ps(" MGMTRX="); ph(g_mgmt_rx, 4); ps(" HTCDROP="); ph(g_htc_drops, 4); nl();
+   ps("SCANCH="); ph(g_scan_visit[2], 4); ph(g_scan_visit[1], 4); ph(g_scan_visit[0], 4);
+   ps(" SCEV="); ph(g_scan_events, 4); ps(" LASTTYPE="); ph(g_scan_last_type, 4); nl();
+   ps("MG2G=");
+   for (i = 1; i <= 14; i++)
+      ph(g_mg_ch[i], 2);
+   ps(" MG5G="); ph(g_mg_5g, 4); ps(" MGDROP="); ph(g_mg_drop, 4); ps(" ST="); ph(g_mg_laststatus, 4); nl();
+   ps("IOCTLS="); ph(g_ioctl_n, 4); ps(" OTHER="); ph(g_bad_n, 4); ps(" LASTOTHER(cat/func)="); ph(g_bad_cf, 4);
+   ps(" LANNUM="); ph(g_lannum, 2); nl();
+   {
+      USHORT n = g_oidlog_n, first = (n > 16) ? (USHORT)(n - 16) : 0, k;
+
+      for (k = first; k < n; k++) {                       /* oldest first                                     */
+         ps(g_oidlog_set[k % 16] ? "SET " : "GET "); ph(g_oidlog[k % 16], 8);
+         ps(" -> "); ph(g_oidlog_st[k % 16], 8); nl();
+      }
+   }
    ps("LASTERR="); ps(g_last_err_txt); ps(" "); ph(g_last_err, 8); nl();
+   ps("DBG=");  ph(g_dbg_n, 4); ps(" ADDR="); ph(g_dbg_addr, 8); ps(" VAL="); ph(g_dbg_val, 8);
+   ps(" BARWIN="); ph(g_nbarsel, 2); nl();
+   ps("LINK="); ps(g_joined ? "JOINED " : "none "); ph(g_jch, 2); ps(" AID="); ph(g_jaid, 4);
+   ps(" JFAIL="); ph(g_jfail, 2); ps(" AUTH="); ph(g_auth_status, 4); ps(" ASSOC="); ph(g_assoc_status, 4);
+   ps(g_open_net ? " OPEN" : " RSN"); ps(g_ptk_on ? " PTK" : " nokey"); ps(g_authorized ? " AUTHORIZED" : ""); nl();
+   ps("HTT="); ps(g_htt_ready ? "ready" : "down"); ps(" RXIND="); ph(g_htt_rxind, 4); ps(" RXFRM="); ph(g_htt_rxfrm, 4);
+   ps(" RXDROP="); ph(g_htt_rxdrop, 4); ps(" TXOK="); ph(g_htt_txok, 4); ps(" TXCOMPL="); ph(g_htt_txcompl, 4);
+   ps(" TXFAIL="); ph(g_htt_txfail, 4); ps(" TXFULL="); ph(g_htt_txfull, 4); nl();
+   ps("RXWHY=");
+   for (i = 0; i < 8; i++) { ph(g_rx_why[i], 4); ps(i < 7 ? "," : ""); }
+   ps(" LAST decap="); ph(g_rx_decap_last, 2); ps(" fc0="); ph(g_rx_fc_last, 2); ps(" attn="); ph(g_rx_attn_last, 8); nl();
+   ps("NDIS reg="); ph(ndis_state(8), 1); ps(" status="); ph(ndis_state(0), 4); ps(" filter="); ph(ndis_state(1), 4);
+   ps(" rxbufs="); ph(ndis_state(6), 2); ps(" txbuf="); ph(ndis_state(7), 1); ps(" tx="); ph(ndis_state(2), 4);
+   ps(" txhw="); ph(ndis_state(3), 4); ps(" rx="); ph(ndis_state(4), 4); ps(" nobuf="); ph(ndis_state(5), 4); nl();
+   ps("NDISQ hi="); ph(ndis_state(9), 4); ps(" hooks="); ph(ndis_state(10), 4); ps(" dropbusy="); ph(ndis_state(11), 4);
+   ps(" dropoff="); ph(ndis_state(12), 4); nl();
+   ps("RATE rxpps="); ph(g_pps_rx_max, 4); ps(" txpps="); ph(g_pps_tx_max, 4);
+   ps(" irq2hook max="); ph(g_lat_max, 4); ps("ms n="); ph(g_lat_n, 4); ps(" sumlo="); ph((USHORT)g_lat_sum, 4); nl();
+   ps("TXCALLS="); ph(g_tx_calls, 4); ps(" WHY(open,link,buf,big,map,refused,busy,ok)=");
+   for (i = 0; i < 8; i++) { ph(g_tx_why[i], 4); ps(i < 7 ? "," : ""); }
+   ps(" LAST len="); ph(g_tx_last_len, 4); ps(" type="); ph(g_tx_last_et, 4); ps(" rc="); ph((USHORT)g_tx_last_rc, 4); nl();
+   ps("HT="); ps(g_use_ht ? "on" : "off"); ps(" QOS="); ph(g_qos, 2); ps(" APMCS="); ph(g_ht_mcs[0], 2); ph(g_ht_mcs[1], 2);
+   ps(" NSS="); ph(g_ht_nss, 2); nl();
+   ps("EAPOL="); ph(sta_eapol_count(), 2); ps(" FWREORDER="); ph(g_svc_full_reorder, 1);
+   ps(" MGMTWMI="); ph(g_svc_mgmt_tx_wmi, 1); ps(" MGMT="); ps((g_svc_mgmt_tx_wmi || fw_feature(2)) ? "wmi" : "htt");
+   ps(" FEAT=");
+   for (i = 0; i < 8; i++)
+      ph(g_fw.features[i], 2);
+   nl();
    for (i = 0; i < g_nnet; i++) {
       ps("NET="); ph(g_net[i].ch, 2); ps(" ");
       ph((ULONG)(UCHAR)g_net[i].rssi, 2); ps(" ");

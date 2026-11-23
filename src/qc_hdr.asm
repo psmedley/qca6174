@@ -23,7 +23,10 @@ segment _TEXT   class=CODE     align=2 public use16
 group DGROUP HEADER CONST _DATA _BSS RTEND
 
 ; attribute word: bit 15 character device, bit 11 open/close requests,
-; bits 9-7 = 011 (header carries a capabilities strip). No IDC entry (bit 14 clear).
+; bits 9-7 = 011 (header carries a capabilities strip). Bit 14 = generic IOCtl (DosDevIOCtl category/function)
+; support: without it the kernel never passes the GenMAC calls (category 99h) to the strategy routine.
+; (This bit is the one the RTL driver sets and calls "IDC"; there is no IDC entry in this driver.)
+ATTR_IOCTL      equ 0x4000
 ATTR_CHAR       equ 0x8000
 ATTR_OPENCLOSE  equ 0x0800
 ATTR_LEVEL3     equ 0x0180
@@ -36,7 +39,7 @@ segment HEADER
 global rt_head
 rt_head:
         dd      -1                              ; far pointer to the next header (none)
-        dw      ATTR_CHAR | ATTR_OPENCLOSE | ATTR_LEVEL3
+        dw      ATTR_CHAR | ATTR_IOCTL | ATTR_OPENCLOSE | ATTR_LEVEL3
         dw      rt_strategy_entry               ; offset of the strategy routine
         dw      0                               ; no IDC entry point
         db      'WRND32$ '                      ; 8-byte device name: the GenMAC wrapper name that the OS/2

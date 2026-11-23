@@ -681,6 +681,8 @@ int ath_up(void)
       return 0;
    g_hw_failed = 0;
    g_bmi_done_sent = 0;
+   g_wmi_svc_ready = g_wmi_ready = 0;
+   g_svc_full_reorder = g_svc_mgmt_tx_wmi = 0;
    tstr("[up]");
    STEP(1, (g_fwblob.done && g_bdblob.done) ? 0 : -1);   /* both files must have been copied to WRND32$  */
    STEP(2, fw_parse());
@@ -730,6 +732,7 @@ int ath_up(void)
    STEP(23, htc_connect(HTC_SVC_WMI_CONTROL, &g_wmi_ep));
    STEP(24, htc_start());
    STEP(25, wmi_init_target());
+   STEP(26, htt_setup());                                /* version, rx ring, aggregation                  */
    g_hw_state = 100;
    g_hw_ready = 1;
    intx_enable();                                       /* an interrupt during start-up left it masked   */
@@ -746,7 +749,10 @@ extern USHORT g_nbarsel;
 
 void ath_down(void)
 {
+   if (g_hw_ready)
+      sta_leave();
    g_hw_ready = 0;
+   g_htt_ready = 0;
    if (g_nbarsel)
       irq_disable_all();
 }
