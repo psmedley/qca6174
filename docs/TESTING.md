@@ -131,3 +131,13 @@ through the diagnostic copy engine (only after a successful `up`). Read the resu
 2. `echo r 3a028 > \DEV\WRND32$` reads the firmware indicator register.
 3. Only then the upload and `echo up`. `echo up` is the first thing that resets the chip; if the machine freezes
    there, the last `STATE=` cannot be read, so take the steps above first and note which one was the last to work.
+
+## 10. A scan finds no 2.4 GHz networks
+
+The status text has scan statistics: `SCANCH=` is a 48-bit map (hex, channel 1 = the lowest bit) of the channels
+the firmware reported visiting, in the order of the driver's channel list (1-13, then 36 ... 165); `SCEV`/`LASTTYPE`
+count scan events and show the last type (`0002` = completed); `MG2G=` is one byte per 2.4 GHz channel 1-14 counting
+the management frames received there, `MG5G` the 5 GHz total, `MGDROP`/`ST` frames dropped for a non-zero receive
+status. If `SCANCH` shows the 2.4 GHz bits set but `MG2G` stays 0, the firmware visited the channels and heard nothing
+(antenna, regulatory domain or genuinely no networks); if the bits are clear, the channel list or the regulatory
+domain keeps the firmware from scanning them.

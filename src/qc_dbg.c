@@ -233,6 +233,8 @@ static void ph(ULONG v, USHORT digits)
 static void nl(void) { ps("\r\n"); }
 
 extern USHORT g_wmi_events, g_mgmt_rx, g_htc_drops, g_svc_runs, g_hook_runs;
+extern UCHAR  g_mg_ch[15];
+extern USHORT g_mg_5g, g_mg_drop, g_mg_laststatus, g_scan_visit[3], g_scan_events, g_scan_last_type;
 extern ULONG  g_fw_build, g_eeprom_rd;
 extern USHORT g_nbarsel;
 extern char  *ath_board_name(void);
@@ -258,6 +260,12 @@ static void build_status(void)
    ps("NETS="); ph(g_nnet, 4); ps(" IRQS="); ph(g_irq_count, 4); ps(" SPUR="); ph(g_irq_spurious, 4);
    ps(" HOOK="); ph(g_hook_runs, 4); ps(" SVC="); ph(g_svc_runs, 4); ps(" WMIEV="); ph(g_wmi_events, 4);
    ps(" MGMTRX="); ph(g_mgmt_rx, 4); ps(" HTCDROP="); ph(g_htc_drops, 4); nl();
+   ps("SCANCH="); ph(g_scan_visit[2], 4); ph(g_scan_visit[1], 4); ph(g_scan_visit[0], 4);
+   ps(" SCEV="); ph(g_scan_events, 4); ps(" LASTTYPE="); ph(g_scan_last_type, 4); nl();
+   ps("MG2G=");
+   for (i = 1; i <= 14; i++)
+      ph(g_mg_ch[i], 2);
+   ps(" MG5G="); ph(g_mg_5g, 4); ps(" MGDROP="); ph(g_mg_drop, 4); ps(" ST="); ph(g_mg_laststatus, 4); nl();
    ps("LASTERR="); ps(g_last_err_txt); ps(" "); ph(g_last_err, 8); nl();
    ps("DBG=");  ph(g_dbg_n, 4); ps(" ADDR="); ph(g_dbg_addr, 8); ps(" VAL="); ph(g_dbg_val, 8);
    ps(" BARWIN="); ph(g_nbarsel, 2); nl();

@@ -106,6 +106,10 @@ USHORT g_svc_full_reorder, g_svc_mgmt_tx_wmi;
 USHORT g_vdev_start_done, g_vdev_start_status, g_vdev_stopped, g_peer_map, g_sec_ind;
 UCHAR  g_peer_map_addr[6];
 USHORT g_link_lost;
+UCHAR  g_mg_ch[15];                        /* management frames per 2.4 GHz channel (index 1..14), saturating      */
+USHORT g_mg_5g, g_mg_drop, g_mg_laststatus;/* 5 GHz frames, frames dropped for a non-zero status, the last status */
+USHORT g_scan_visit[3];                    /* bit n: channel g_chans[n] was visited by the scan (foreign-channel event) */
+USHORT g_scan_events, g_scan_last_type;
 static UCHAR g_wmi_mac[6];
 
 static struct { ULONG req_id, unit_size, info, units; } g_memreq[MAX_MEM_REQS];
@@ -239,6 +243,8 @@ static void ev_ready(UCHAR FAR *p, USHORT len)
    }
 }
 
+static USHORT scan_chan_index(USHORT mhz);
+
 static void ev_scan(UCHAR FAR *p, USHORT len)
 {
    ULONG type;
@@ -246,6 +252,14 @@ static void ev_scan(UCHAR FAR *p, USHORT len)
    if (len < 4 + 24 || (p[2] | (p[3] << 8)) != TAG_SCAN_EVENT)
       return;
    type = g32(p + 4);
+   g_scan_events++;
+   g_scan_last_type = (USHORT)type;
+   if (type & WMI_SCAN_EVENT_FOREIGN_CHANNEL) {              /* the scan moved to a channel: remember which        */
+      USHORT n = scan_chan_index((USHORT)g32(p + 4 + 8));
+
+      if (n < 48)
+         g_scan_visit[n >> 4] |= (USHORT)(1U << (n & 15));
+   }
    if (type & (WMI_SCAN_EVENT_COMPLETED | WMI_SCAN_EVENT_START_FAILED)) {
       g_scan_done = 1;
       g_scan_running = 0;
@@ -278,8 +292,15 @@ static void ev_mgmt_rx(UCHAR FAR *p, USHORT len)
       }
       pos = (USHORT)(pos + tl);
    }
-   if (!frame || status != 0UL)
+   if (chan >= 1 && chan <= 14) {
+      if (g_mg_ch[chan] < 255) g_mg_ch[chan]++;
+   } else
+      g_mg_5g++;
+   if (!frame || status != 0UL) {
+      g_mg_drop++;
+      g_mg_laststatus = (USHORT)status;
       return;
+   }
    if (blen < (ULONG)flen)
       flen = (USHORT)blen;
    if (flen < 24)
@@ -470,6 +491,16 @@ static USHORT ch_mhz(UCHAR c)
 
 static int ch_dfs(UCHAR c) { return c >= 52 && c <= 140; }
 
+static USHORT scan_chan_index(USHORT mhz)
+{
+   USHORT i;
+
+   for (i = 0; i < NCHANS; i++)
+      if (ch_mhz(g_chans[i]) == mhz)
+         return i;
+   return 0xFFFF;
+}
+
 static int cmd_scan_chan_list(void)
 {
    UCHAR FAR *p = wmi_begin(), FAR *q;
@@ -585,6 +616,8 @@ int wmi_scan(void)
    q = tlv(q, TAG_ARRAY_BYTE, 0);
    g_scan_done = 0;
    g_scan_running = 1;
+   g_scan_visit[0] = g_scan_visit[1] = g_scan_visit[2] = 0;
+   g_scan_events = 0;
    if (wmi_send(WMI_TLV_START_SCAN_CMDID, (USHORT)(q - p))) {
       g_scan_running = 0;
       return -2;
