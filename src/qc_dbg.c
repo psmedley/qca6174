@@ -265,6 +265,7 @@ static void build_status(void)
    ps(" BOARD="); ph(g_bdblob.len, 8); ps(g_bdblob.done ? " loaded" : " missing"); nl();
    ps("FWVER="); pfs((char FAR *)g_fw.version, sizeof(g_fw.version)); ps(" BUILD="); ph(g_fw_build, 8); nl();
    ps("BOARDNAME="); ps(ath_board_name()); nl();
+   ps("RFCHAINS="); ph(g_num_rf, 2); nl();
    ps("STATE="); ph(g_hw_state, 4); ps(g_hw_ready ? " READY" : (g_hw_failed ? " FAILED" : " DOWN"));
    ps(" CHIP="); ph(g_chip_id, 8); ps(" TARGET="); ph(g_target_ver, 8); ps(" RD="); ph(g_eeprom_rd, 4); nl();
    ps("MAC=");

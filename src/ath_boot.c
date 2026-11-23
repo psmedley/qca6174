@@ -12,6 +12,7 @@
 
 USHORT g_hw_ready, g_hw_failed, g_hw_state;
 ULONG  g_chip_id, g_target_ver;
+USHORT g_num_rf;
 UCHAR  g_mymac[6];
 int    g_bmi_rc;
 
@@ -706,7 +707,8 @@ int ath_up(void)
 
       c.l = g_chip_id;
       rev = (USHORT)((c.w[0] >> 8) & 0x0F);
-      STEP(10, (rev == 8 || rev == 9 || rev == 10) ? 0 : -1);   /* hw3.0 / 3.1 / 3.2                      */
+      STEP(10, (g_pci_dev == QCA9377_DEV_ID ? (rev == 0 || rev == 1)           /* QCA9377 hw1.0 / 1.1                 */
+                                           : (rev == 8 || rev == 9 || rev == 10)) ? 0 : -1);   /* QCA6174 hw3.0 / 3.1 / 3.2 */
    }
    ce_init_pipes();
    STEP(11, init_config());

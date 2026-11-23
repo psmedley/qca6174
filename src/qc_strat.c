@@ -150,7 +150,7 @@ static void rt_init(RP_INIT FAR *rp)
       return;
    }
    if (pci_find()) {
-      say("QCA6174: could not be loaded: no Qualcomm Atheros QCA6174 (168C:003E) found.");
+      say("QCA6174: could not be loaded: no Qualcomm Atheros QCA6174 (168C:003E) or QCA9377 (168C:0042) found.");
       rp->rph.Status |= STDON | STERR | ERROR_I24_GEN_FAILURE;
       return;
    }

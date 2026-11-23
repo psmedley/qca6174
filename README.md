@@ -57,3 +57,14 @@ multiply/divide/variable shift, DGROUP below 64 KB). See [BUILD.md](BUILD.md).
 
 GPL-2.0-only (`COPYING`). The OS/2 plumbing derives from the OS2World RTL88EU driver (GPL-2.0-only); the chip
 code is ported from Linux ath10k (ISC). See [PROVENANCE.md](PROVENANCE.md).
+
+
+## QCA9377 (experimental)
+
+The PCIe QCA9377 (`168C:0042`, hw1.0 / hw1.1, 1x1) uses the same TLV firmware family, register map, reset, BMI
+download, WMI/HTT as the QCA6174 hw3.x. The driver accepts that device ID and chip revisions 0/1, and uses the
+firmware-reported RF chain count (`RFCHAINS=` in the status text) for the HT stream count (1 on the 9377).
+**Untested on real hardware.** Firmware: linux-firmware `ath10k/QCA9377/hw1.0/firmware-6.bin` and `board-2.bin`
+(copy both to `\DEV\WRND32$` as for the QCA6174; the NIF, PROTOCOL.INI names and the rest are unchanged).
+Please send the `copy \DEV\WRND32$ con` status text; the first things to check are `ID=168C:0042`, `CHIP=`/`TARGET=`
+(expected target version `05020000` or `05020001`), `STATE=` and `RFCHAINS=`.

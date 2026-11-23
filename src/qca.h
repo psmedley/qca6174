@@ -55,6 +55,7 @@ void   qc_msleep(USHORT ms);            /* task time only: ProcBlock with a time
 /* ---- PCI and MMIO (qc_pci.c) ---------------------------------------------------------------------- */
 #define QCA_VENDOR_ID   0x168C
 #define QCA6174_DEV_ID  0x003E
+#define QCA9377_DEV_ID  0x0042                          /* QCA9377 1.0 / 1.1 (1x1), same TLV firmware family */
 extern USHORT g_pci_bdf;                 /* bus << 8 | dev << 3 | fn, 0xFFFF = not found                   */
 extern USHORT g_pci_ven, g_pci_dev, g_pci_subven, g_pci_subdev;
 extern UCHAR  g_pci_rev, g_pci_irq;
@@ -222,6 +223,7 @@ int    diag_wr32(ULONG addr, ULONG v);
 /* ---- chip bring-up, BMI (ath_boot.c) -------------------------------------------------------------- */
 extern USHORT g_hw_ready, g_hw_failed, g_hw_state;
 extern ULONG  g_chip_id, g_target_ver;
+extern USHORT g_num_rf;                                  /* RF chains reported by the firmware (WMI service ready) */
 extern UCHAR  g_mymac[6];
 extern UCHAR  g_cfgmac;
 extern UCHAR  g_wmi_mac[6];

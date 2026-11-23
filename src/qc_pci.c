@@ -84,7 +84,7 @@ void pci_cfg_wr16(UCHAR reg, USHORT val)
    cfg_wr(g_pci_bdf, reg, v.l);
 }
 
-/* Find the first 168C:003E function. Buses 0..255, devices 0..31, functions 0..7 (functions 1..7 only when
+/* Find the first 168C:003E (QCA6174) or 168C:0042 (QCA9377) function. Buses 0..255, devices 0..31, functions 0..7 (functions 1..7 only when
  * function 0 is a multi-function device). */
 int pci_find(void)
 {
@@ -100,7 +100,7 @@ int pci_find(void)
                if (fn == 0) break;               /* no device here                                         */
                continue;
             }
-            if (id.w[0] == QCA_VENDOR_ID && id.w[1] == QCA6174_DEV_ID) {
+            if (id.w[0] == QCA_VENDOR_ID && (id.w[1] == QCA6174_DEV_ID || id.w[1] == QCA9377_DEV_ID)) {
                g_pci_bdf = bdf;
                g_pci_ven = id.w[0];
                g_pci_dev = id.w[1];

@@ -244,9 +244,12 @@ static int tx_assoc(net_t *n)
       g_jreqlen = sizeof(g_jreq);
    for (i = 0; i < g_jreqlen; i++)
       g_jreq[i] = g_frame[28 + i];
-   if (g_use_ht)                                       /* after the RSN element, as mac80211 orders them     */
+   if (g_use_ht) {                                     /* after the RSN element, as mac80211 orders them     */
       for (i = 0; i < 28; i++)
          g_frame[k++] = g_htcap[i];
+      if (g_num_rf < 2)
+         g_frame[k - 28 + 6] = 0;                      /* 1x1 radio (QCA9377): no MCS 8-15 (rx mask byte 1)   */
+   }
    return wmi_mgmt_tx((UCHAR FAR *)g_frame, k);
 }
 

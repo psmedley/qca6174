@@ -192,8 +192,12 @@ static void ev_service_ready(UCHAR FAR *p, USHORT len)
       pos += 4;
       if ((USHORT)(pos + tl) > len)
          break;
-      if (tag == TAG_SERVICE_READY_EVENT && tl >= 76)
+      if (tag == TAG_SERVICE_READY_EVENT && tl >= 76) {
          g_fw_build = g32(p + pos);
+         g_num_rf = (USHORT)g32(p + pos + 36);              /* fw_build, abi (24 bytes), phy_capability, max_frag_entry, num_rf_chains */
+         if (g_num_rf == 0 || g_num_rf > 4)
+            g_num_rf = (USHORT)(g_pci_dev == QCA9377_DEV_ID ? 1 : 2);   /* implausible value: the chip's usual count */
+      }
       else if (tag == TAG_HAL_REG_CAPABILITIES && tl >= 4)
          g_eeprom_rd = g32(p + pos);
       else if (tag == TAG_ARRAY_UINT32 && !got_bmap) {      /* the first u32 array is the service bitmap     */
@@ -774,14 +778,14 @@ int wmi_peer_assoc(UCHAR FAR *addr, USHORT aid, USHORT caps, USHORT listen, ULON
       UCHAR FAR *m = htcap + 5;                         /* supported MCS set: rx mask bytes 0..1 are what we use */
 
       hcap = (USHORT)(htcap[2] | (htcap[3] << 8));
-      for (i = 0; i < 16; i++)
+      for (i = 0; i < (USHORT)(g_num_rf >= 2 ? 16 : 8); i++)     /* only the MCS indexes our radio can use */
          if (m[i >> 3] & (1 << (i & 7)))
             hr[nht++] = (UCHAR)i;
       if (!nht) {                                       /* HT AP without an MCS mask: MCS 0-7 are mandatory   */
          for (i = 0; i < 8; i++) hr[i] = (UCHAR)i;
          nht = 8;
-      } else if (m[1])
-         nss = 2;
+      } else if (m[1] && g_num_rf >= 2)
+         nss = 2;                                       /* the AP receives 2 streams and so can we              */
       flags |= 0x1000UL | 0x2UL;                        /* WMI_TLV_PEER_HT | WMI_TLV_PEER_QOS                 */
       if (hcap & 1) flags |= 0x10000UL;                 /* LDPC                                               */
       rc = 0x08UL;                                      /* WMI_RC_HT_FLAG                                     */
