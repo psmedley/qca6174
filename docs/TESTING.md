@@ -169,3 +169,9 @@ The adapter now starts automatically when the second firmware file is copied. If
 before the network is bound (STARTUP.CMD before NETBIND), `NETADDRESS` is no longer needed; the status text
 says `(firmware)` next to `MAC=` and `ndis_set_mac` hands the chip's address to the stack. If the stack still
 binds first, keep `NETADDRESS`.
+
+### NETADDRESS helper
+
+The stack binds before STARTUP.CMD can load the firmware, so the real MAC cannot reach it at bind time
+(the driver can't touch the card during boot). Run `install\QCMAC.CMD` once after the adapter is READY: it reads
+`FWMAC=` from the status text and writes `NETADDRESS` into `[QCA6174_NIF]` (a `.bak` copy is made). Reboot afterwards.
