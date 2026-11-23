@@ -175,3 +175,12 @@ binds first, keep `NETADDRESS`.
 The stack binds before STARTUP.CMD can load the firmware, so the real MAC cannot reach it at bind time
 (the driver can't touch the card during boot). Run `install\QCMAC.CMD` once after the adapter is READY: it reads
 `FWMAC=` from the status text and writes `NETADDRESS` into `[QCA6174_NIF]` (a `.bak` copy is made). Reboot afterwards.
+
+## 13. HT20 (speed)
+
+If the AP's beacon has an HT capabilities element, the driver joins in HT20: the vdev channel mode is HT20,
+the association request carries an HT capabilities element (HT20, SGI20, 2 streams MCS 0-15 receive mask byte 0/1),
+the peer is associated with the AP's HT caps/MCS set (flags HT|QOS), and data frames go out as QoS data (TID 0).
+Status text: `HT=on QOS=01 APMCS=FFFF NSS=02`. No A-MPDU receive agreement (ADDBA is not answered) and no 40/80 MHz
+or VHT yet; expect roughly 3-6x the legacy-rate speed. If the join fails or traffic stops, report the status text:
+the quick way back is a build before this commit.

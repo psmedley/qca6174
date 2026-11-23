@@ -307,6 +307,8 @@ static void build_status(void)
    ps("TXCALLS="); ph(g_tx_calls, 4); ps(" WHY(open,link,buf,big,map,refused,busy,ok)=");
    for (i = 0; i < 8; i++) { ph(g_tx_why[i], 4); ps(i < 7 ? "," : ""); }
    ps(" LAST len="); ph(g_tx_last_len, 4); ps(" type="); ph(g_tx_last_et, 4); ps(" rc="); ph((USHORT)g_tx_last_rc, 4); nl();
+   ps("HT="); ps(g_use_ht ? "on" : "off"); ps(" QOS="); ph(g_qos, 2); ps(" APMCS="); ph(g_ht_mcs[0], 2); ph(g_ht_mcs[1], 2);
+   ps(" NSS="); ph(g_ht_nss, 2); nl();
    ps("EAPOL="); ph(sta_eapol_count(), 2); ps(" FWREORDER="); ph(g_svc_full_reorder, 1);
    ps(" MGMTWMI="); ph(g_svc_mgmt_tx_wmi, 1); ps(" MGMT="); ps((g_svc_mgmt_tx_wmi || fw_feature(2)) ? "wmi" : "htt");
    ps(" FEAT=");

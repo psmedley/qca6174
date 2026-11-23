@@ -263,7 +263,8 @@ int    wmi_vdev_down(void);
 int    wmi_peer_create(UCHAR FAR *addr);
 int    wmi_peer_delete(UCHAR FAR *addr);
 int    wmi_peer_assoc(UCHAR FAR *addr, USHORT aid, USHORT caps, USHORT listen, ULONG flags,
-                      UCHAR FAR *rates, USHORT nrates, USHORT phymode);
+                      UCHAR FAR *rates, USHORT nrates, UCHAR FAR *htcap, USHORT phymode);
+extern UCHAR g_use_ht, g_qos, g_ht_mcs[2], g_ht_nss;
 int    wmi_peer_authorize(UCHAR FAR *addr);
 int    wmi_install_key(UCHAR FAR *addr, UCHAR idx, USHORT group, UCHAR FAR *key, USHORT klen);
 int    wmi_mgmt_tx(UCHAR FAR *frame, USHORT len);

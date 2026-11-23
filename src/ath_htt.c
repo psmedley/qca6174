@@ -492,7 +492,7 @@ static int tx_common(UCHAR FAR *eth, USHORT len, USHORT noenc, USHORT mgmt)
       } else {
          /* 802.11 native-wifi frame: data, To-DS, [Protected], addr1 = BSSID, addr2 = SA, addr3 = DA, LLC/SNAP */
          prot = (UCHAR)((!noenc && g_ptk_on) ? 0x40 : 0);
-         f[0] = 0x08;
+         f[0] = (UCHAR)(g_qos ? 0x88 : 0x08);            /* QoS data when the peer is an HT/WMM station          */
          f[1] = (UCHAR)(0x01 | prot);
          f[2] = f[3] = 0;
          for (i = 0; i < 6; i++) {
@@ -501,12 +501,14 @@ static int tx_common(UCHAR FAR *eth, USHORT len, USHORT noenc, USHORT mgmt)
             f[16 + i] = eth[i];
          }
          f[22] = f[23] = 0;                              /* sequence control: the firmware numbers frames        */
-         f[24] = 0xAA; f[25] = 0xAA; f[26] = 0x03; f[27] = f[28] = f[29] = 0;
-         f[30] = eth[12]; f[31] = eth[13];
-         rt_movmem((PVOID)(f + 32), eth + 14, (USHORT)(len - 14));
-         flen = (USHORT)(32 + len - 14);
+         so = g_qos ? 26 : 24;                           /* header length: + QoS control (TID 0, normal ack)     */
+         f[24] = f[25] = 0;
+         f[so] = 0xAA; f[so + 1] = 0xAA; f[so + 2] = 0x03; f[so + 3] = f[so + 4] = f[so + 5] = 0;
+         f[so + 6] = eth[12]; f[so + 7] = eth[13];
+         rt_movmem((PVOID)(f + so + 8), eth + 14, (USHORT)(len - 14));
+         flen = (USHORT)(so + 8 + len - 14);
          flags0 = (UCHAR)(0x01 | 0x20 | (prot ? 0 : 0x04));   /* MAC_HDR_PRESENT | NATIVE_WIFI | NO_ENCRYPT    */
-         flags1 = 0x0C00;                                /* vdev 0, ext tid 16 (non-QoS), POSTPONED              */
+         flags1 = (USHORT)(g_qos ? 0x0800 : 0x0C00);     /* vdev 0, ext tid 0 (QoS) or 16 (non-QoS), POSTPONED   */
          frags = ph;                                     /* the fragment list at the start of the slot           */
       }
       pre = (flen < TX_PREFETCH) ? flen : TX_PREFETCH;

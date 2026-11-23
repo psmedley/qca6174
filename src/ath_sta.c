@@ -29,7 +29,30 @@ static UCHAR  g_want_len;
 static USHORT g_want_open;
 static UCHAR  g_target[6];
 static USHORT g_joining, g_vdev_started, g_peer_made, g_seq, g_pm_miss;
-static UCHAR  g_frame[220];
+static UCHAR  g_frame[260];
+UCHAR  g_use_ht, g_qos;                                /* HT20 negotiated with this AP; QoS data frames          */
+UCHAR  g_ht_mcs[2], g_ht_nss;                          /* status: AP rx MCS bytes 0/1, streams used             */
+
+/* The element with this id in a block of information elements, or NULL. */
+static UCHAR FAR *find_ie(UCHAR FAR *b, USHORT len, UCHAR id)
+{
+   USHORT pos = 0;
+
+   while ((USHORT)(pos + 2) <= len) {
+      if ((USHORT)(pos + 2 + b[pos + 1]) > len)
+         break;
+      if (b[pos] == id)
+         return b + pos;
+      pos = (USHORT)(pos + 2 + b[pos + 1]);
+   }
+   return 0;
+}
+
+/* Our HT capabilities element (26 bytes of data): HT20 only, short GI 20, SM power save off, 2 streams of MCS 0-7. */
+static const UCHAR g_htcap[28] = { 45, 26, 0x2C, 0x00, 0x03,
+                                   0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                   0, 0, 0, 0, 0, 0, 0 };
+
 
 void sta_scan_clear(void)
 {
@@ -221,6 +244,9 @@ static int tx_assoc(net_t *n)
       g_jreqlen = sizeof(g_jreq);
    for (i = 0; i < g_jreqlen; i++)
       g_jreq[i] = g_frame[28 + i];
+   if (g_use_ht)                                       /* after the RSN element, as mac80211 orders them     */
+      for (i = 0; i < 28; i++)
+         g_frame[k++] = g_htcap[i];
    return wmi_mgmt_tx((UCHAR FAR *)g_frame, k);
 }
 
@@ -294,6 +320,7 @@ int sta_join(UCHAR FAR *want_bssid, USHORT any)
    USHORT k, best = 0xFFFF, i, att, bcn, dtim, nr, pos;
    int    bestr = -1000, rv;
    net_t *n;
+   UCHAR FAR *htp;
 
    g_jfail = 0;
    if (!g_hw_ready) { g_jfail = 8; return -1; }
@@ -332,6 +359,11 @@ int sta_join(UCHAR FAR *want_bssid, USHORT any)
          dtim = n->ie[pos + 3];                          /* TIM element: DTIM period                         */
    }
 
+   {
+      UCHAR FAR *h = (n->ielen > 12) ? find_ie((UCHAR FAR *)n->ie + 12, (USHORT)(n->ielen - 12), 45) : 0;
+
+      g_use_ht = (UCHAR)(h && h[1] >= 26);            /* the AP's beacon carries an HT capabilities element */
+   }
    if (wmi_vdev_start(n->ch, bcn, dtim)) { g_jfail = 9; abort_join(); return -1; }
    g_vdev_started = 1;
    if (ath_wait(&g_vdev_start_done, 2000) || g_vdev_start_status != 0) {
@@ -366,9 +398,21 @@ int sta_join(UCHAR FAR *want_bssid, USHORT any)
    if (g_assoc_status != 0)      { g_jfail = 5; abort_join(); return -1; }   /* refused (status in JASSOC)          */
 
    nr = ap_rates((UCHAR FAR *)rates);
+   {
+      UCHAR FAR *h = g_use_ht ? find_ie((UCHAR FAR *)g_assoc_res, g_assoc_reslen, 45) : 0;
+
+      if (h && h[1] < 26)
+         h = 0;
+      if (!h)
+         g_use_ht = 0;                                 /* the AP did not confirm HT in its response          */
+      g_qos = g_use_ht;
+      if (h) { g_ht_mcs[0] = h[2 + 3]; g_ht_mcs[1] = h[2 + 4]; }
+      htp = h;
+   }
    if (wmi_peer_assoc((UCHAR FAR *)g_target, g_assoc_aid, g_assoc_caps, 10,
                       g_want_open ? 0UL : 0x4UL,          /* WMI_TLV_PEER_NEED_PTK_4_WAY for an RSN network     */
-                      (UCHAR FAR *)rates, nr, (USHORT)(n->ch > 14 ? 0 : 1)) ||
+                      (UCHAR FAR *)rates, nr, htp,
+                      (USHORT)(g_use_ht ? (n->ch > 14 ? 4 : 5) : (n->ch > 14 ? 0 : 1))) ||
        wmi_vdev_up(g_assoc_aid, (UCHAR FAR *)g_target)) {
       g_jfail = 10;
       abort_join();
@@ -407,6 +451,7 @@ void sta_leave(void)
       wmi_vdev_down();
    }
    g_joined = g_authorized = g_ptk_on = 0;
+   g_use_ht = g_qos = 0;
    abort_join();                                          /* peer delete, vdev stop                            */
    g_link_lost = 0;
 }
