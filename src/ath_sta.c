@@ -522,5 +522,8 @@ int sta_eapol_tx(UCHAR FAR *eth, USHORT len)
 {
    if (!g_joined)
       return -1;
-   return htt_tx_eth(eth, len, 1);                        /* unprotected: the handshake precedes the keys     */
+   /* Unprotected while the pairwise key is not installed (4-way handshake messages 2 and 4: wpa_supplicant installs the
+    * key after sending message 4). Once it is, the group-key handshake reply and any re-keying must be encrypted, or
+    * the access point ignores them. */
+   return htt_tx_eth(eth, len, (USHORT)(g_ptk_on ? 0 : 1));
 }

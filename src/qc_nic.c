@@ -215,11 +215,12 @@ static void oid_request(int is_set, ULONG oid, UCHAR FAR *dat, USHORT dlen)
       if (oid == OID_802_11_INFRASTRUCTURE_MODE) { val = g_infra; goto put4; }
       if (oid == OID_802_11_AUTHENTICATION_MODE) { val = g_authmode; goto put4; }
       if (oid == OID_802_11_ENCRYPTION_STATUS) {
-         /* "enabled" reads back as the KeyAbsent value while no key is installed: WEP 0->2, TKIP 4->5,
-          * CCMP 6->7 (the supplicant's capability probe depends on it) */
+         /* "enabled" reads back as the KeyAbsent value only while the pairwise key is not installed: WEP 0->2,
+          * TKIP 4->5, CCMP 6->7 (the supplicant's capability probe depends on it). Once the key is in, the real
+          * value (4 / 6) must be returned, or the supplicant waits for the key for ever. */
          val = g_encstat;
          if (val == 0UL) val = 2UL;
-         else if (val == 4UL || val == 6UL) val += 1UL;
+         else if ((val == 4UL || val == 6UL) && !(g_joined && g_ptk_on)) val += 1UL;
          goto put4;
       }
       if (oid == OID_802_3_CURRENT_ADDRESS || oid == OID_802_3_PERMANENT_ADDRESS) {
