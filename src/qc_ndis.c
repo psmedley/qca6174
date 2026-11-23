@@ -465,7 +465,8 @@ USHORT g_lannum = 1;
 #define PL_MAX 600
 static char   g_pl[PL_MAX + 1];
 static USHORT g_pln;
-static UCHAR  g_in_tcpip;
+static UCHAR  g_in_tcpip, g_in_nif;
+UCHAR         g_cfgmac;
 static char   g_pbuf[256];
 
 static char lc(char c) { return (char)((c >= 'A' && c <= 'Z') ? c + 32 : c); }
@@ -494,9 +495,10 @@ static void pi_line(char *l)
       while (*e && *e != ']') e++;
       while (e > l && (e[-1] == ' ' || e[-1] == '\t')) e--;
       g_in_tcpip = (UCHAR)eqn(l, (USHORT)(e - l), "tcpip_nif");
+      g_in_nif = (UCHAR)eqn(l, (USHORT)(e - l), "qca6174_nif");
       return;
    }
-   if (!g_in_tcpip)
+   if (!g_in_tcpip && !g_in_nif)
       return;
    k = l;
    p = l;
@@ -505,6 +507,32 @@ static void pi_line(char *l)
       return;
    e = p;
    while (e > k && (e[-1] == ' ' || e[-1] == '\t')) e--;
+   if (g_in_nif) {
+      static UCHAR m[6];
+      USHORT n = 0;
+      char   c;
+
+      if (!eqn(k, (USHORT)(e - k), "netaddress"))
+         return;
+      for (v = p + 1; *v && n < 12; v++) {
+         c = *v;
+         if (c >= '0' && c <= '9') c = (char)(c - '0');
+         else if (c >= 'a' && c <= 'f') c = (char)(c - 'a' + 10);
+         else if (c >= 'A' && c <= 'F') c = (char)(c - 'A' + 10);
+         else continue;
+         if (n & 1) m[n >> 1] = (UCHAR)((m[n >> 1] << 4) | c);
+         else       m[n >> 1] = (UCHAR)c;
+         n++;
+      }
+      if (n == 12) {
+         for (n = 0; n < 6; n++) g_mymac[n] = m[n];
+         ndis_set_mac(g_mymac);
+         g_cfgmac = 1;
+      }
+      return;
+   }
+   if (!g_in_tcpip)
+      return;
    if (!eqn(k, (USHORT)(e - k), "bindings"))
       return;
    v = p + 1;
@@ -541,6 +569,7 @@ void ndis_find_lan(void)
       return;
    g_pln = 0;
    g_in_tcpip = 0;
+   g_in_nif = 0;
    while (DosRead(h, (PVOID)g_pbuf, sizeof(g_pbuf), &got) == 0 && got) {
       for (i = 0; i < got; i++) {
          c = g_pbuf[i];

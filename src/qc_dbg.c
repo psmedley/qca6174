@@ -263,6 +263,9 @@ static void build_status(void)
    ps(" CHIP="); ph(g_chip_id, 8); ps(" TARGET="); ph(g_target_ver, 8); ps(" RD="); ph(g_eeprom_rd, 4); nl();
    ps("MAC=");
    for (i = 0; i < 6; i++) { ph(g_mymac[i], 2); if (i < 5) ps(":"); }
+   ps(g_cfgmac ? " (PROTOCOL.INI NETADDRESS)" : " (firmware; set NETADDRESS in PROTOCOL.INI)"); nl();
+   ps("FWMAC=");
+   for (i = 0; i < 6; i++) { ph(g_wmi_mac[i], 2); if (i < 5) ps(":"); }
    nl();
    ps("NETS="); ph(g_nnet, 4); ps(" IRQS="); ph(g_irq_count, 4); ps(" SPUR="); ph(g_irq_spurious, 4);
    ps(" HOOK="); ph(g_hook_runs, 4); ps(" SVC="); ph(g_svc_runs, 4); ps(" WMIEV="); ph(g_wmi_events, 4);

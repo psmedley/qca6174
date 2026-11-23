@@ -223,6 +223,8 @@ int    diag_wr32(ULONG addr, ULONG v);
 extern USHORT g_hw_ready, g_hw_failed, g_hw_state;
 extern ULONG  g_chip_id, g_target_ver;
 extern UCHAR  g_mymac[6];
+extern UCHAR  g_cfgmac;
+extern UCHAR  g_wmi_mac[6];
 int    ath_up(void);                          /* full bring-up; 0 = ready                                 */
 void   ath_down(void);
 ULONG  bmi_rd32(USHORT hi_item);             /* g_bmi_rc = 0 when read                   */

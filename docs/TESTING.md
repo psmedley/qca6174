@@ -158,3 +158,9 @@ The monitor finds a GenMAC adapter through `PROTOCOL.INI` and the NIF file, then
    `C0010016` buffer too short. `IOCTLS=0000` means the monitor never reached the driver (items 1-3, or the
    monitor did not find the adapter in `PROTOCOL.INI`); a request answered `C00000BB` is an OID the monitor needs
    and the driver does not provide.
+
+## 12. NETADDRESS (IP over NDIS)
+
+TCP/IP copies the adapter MAC when it binds at boot, before the firmware is up. Without
+`NETADDRESS = "xxxxxxxxxxxx"` under `[QCA6174_NIF]` in PROTOCOL.INI the stack uses 00:00:00:00:00:00 and
+neither ARP nor ping work. The status text shows `MAC=` (in use) and `FWMAC=` (chip); use the `FWMAC` value.

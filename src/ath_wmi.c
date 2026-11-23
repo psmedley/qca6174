@@ -110,7 +110,7 @@ UCHAR  g_mg_ch[15];                        /* management frames per 2.4 GHz chan
 USHORT g_mg_5g, g_mg_drop, g_mg_laststatus;/* 5 GHz frames, frames dropped for a non-zero status, the last status */
 USHORT g_scan_visit[3];                    /* bit n: channel g_chans[n] was visited by the scan (foreign-channel event) */
 USHORT g_scan_events, g_scan_last_type;
-static UCHAR g_wmi_mac[6];
+UCHAR g_wmi_mac[6];
 
 static struct { ULONG req_id, unit_size, info, units; } g_memreq[MAX_MEM_REQS];
 static USHORT g_nmemreq;
@@ -564,9 +564,11 @@ int wmi_init_target(void)
    g_wmi_ready = 0;
    if (cmd_init()) return -3;
    if (ath_wait(&g_wmi_ready, 5000)) { qc_err("no WMI ready event", 0UL); return -4; }
-   for (i = 0; i < 6; i++)
-      g_mymac[i] = g_wmi_mac[i];
-   ndis_set_mac(g_mymac);
+   if (!g_cfgmac) {
+      for (i = 0; i < 6; i++)
+         g_mymac[i] = g_wmi_mac[i];
+      ndis_set_mac(g_mymac);
+   }
    if (cmd_set_regdomain()) return -5;
    if (cmd_scan_chan_list()) return -6;
    if (cmd_vdev_create()) return -7;
