@@ -221,3 +221,11 @@ A session that ended without a deauthentication (reboot, trap) left a client ent
 transmitting copies of the downstream frames (same IP id, new 802.11 sequence number): 63% duplicate TCP data, ~1 MB/s.
 `echo leave > \DEV\WRND32$` before rebooting gave up to 4 MB/s. The driver now sends a deauthentication to the AP before
 every authentication, and waits 60/80 ms so the deauthentication on leave/shutdown really reaches the air.
+
+## 15. Benchmarking: use the server's LAN address
+
+Test downloads against the server's LAN IP, not its public name. A name that resolves to the public IP goes out through
+the router and back in (NAT loopback / hairpin); on one network that delivered every packet twice (TTL 64 and TTL 63, same
+IP id), which looked like a driver or access-point problem: 1.1 MB/s on channel 149, 8.5 MB/s with a hosts entry for the LAN
+address and no filtering. Signs in the status text: `RXTRACE` rows pairing the same IP id with TTL `4000` and `3F00`;
+`netstat -t` showing "duplicate-only packets received" in the tens of thousands. `DEDUP = ON` is a workaround, not a fix.
