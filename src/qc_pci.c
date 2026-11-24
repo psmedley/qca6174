@@ -30,7 +30,8 @@ ULONG  g_bar_len = 0x00200000UL;          /* QCA6174 BAR0 is 2 MB               
 USHORT g_barsel[BARSEL_MAX];               /* allocated in mem_init()                                      */
 USHORT g_nbarsel;                          /* windows mapped                                               */
 
-USHORT g_irq_hooked, g_irq_count, g_irq_spurious;
+USHORT g_irq_hooked, g_irq_spurious;
+ULONG  g_irq_count;
 
 /* ---- configuration mechanism #1 -------------------------------------------------------------------- */
 static ULONG cfg_addr(USHORT bdf, UCHAR reg)
@@ -218,7 +219,9 @@ void intx_enable(void)
 /* ---- context hook: task-time servicing armed by the interrupt handler ---------------------------- */
 static ULONG  g_hook;
 static USHORT g_hook_ok;
-USHORT        g_hook_runs, g_hook_armfail, g_lat_max, g_lat_n;
+ULONG         g_hook_runs, g_hook_ms;
+USHORT        g_hook_armfail, g_lat_max;
+ULONG         g_lat_n;
 ULONG         g_lat_sum;
 static ULONG  g_irq_t;
 extern void   ndis_hook_deliver(void);    /* qc_ndis.c: received frames queued for the protocol          */
@@ -241,7 +244,8 @@ void hook_arm(void)
 
 void __cdecl qc_hook_c(void)
 {
-   USHORT d = (USHORT)(qc_ms() - g_irq_t);          /* interrupt -> task-time servicing, in ms              */
+   ULONG  t_in = qc_ms();
+   USHORT d = (USHORT)(t_in - g_irq_t);          /* interrupt -> task-time servicing, in ms              */
 
    if (d < 1000) {
       if (d > g_lat_max) g_lat_max = d;
@@ -254,6 +258,7 @@ void __cdecl qc_hook_c(void)
       intx_enable();
    }
    ndis_hook_deliver();
+   g_hook_ms += qc_ms() - t_in;                 /* time spent servicing the card and handing frames up    */
 }
 
 /* Interrupt time. Returns 1 when the interrupt was ours (EOI issued), 0 otherwise (shared line). */

@@ -229,3 +229,19 @@ the router and back in (NAT loopback / hairpin); on one network that delivered e
 IP id), which looked like a driver or access-point problem: 1.1 MB/s on channel 149, 8.5 MB/s with a hosts entry for the LAN
 address and no filtering. Signs in the status text: `RXTRACE` rows pairing the same IP id with TTL `4000` and `3F00`;
 `netstat -t` showing "duplicate-only packets received" in the tens of thousands. `DEDUP = ON` is a workaround, not a fix.
+
+## 16. Receive-path performance changes (to test on OS/2)
+
+Three commits, each one a separate step so a regression can be bisected:
+
+1. `e0046f1` one `IndicationComplete` per batch of up to 32 received frames (it was one per frame), the indication lock is
+   taken once per batch. Status: `NDISQ ... frames= batches=` (frames per batch).
+2. `db18924` the Ethernet frame is built directly in the NDIS receive buffer (one copy less); EAPOL still goes through a scratch
+   frame to the supplicant queue.
+3. wide (32-bit) counters in the status text (they wrapped at 65536), and `HOOKMS=` = milliseconds spent in the interrupt's
+   task-time handler (servicing the card and handing frames up). Divide by the test's duration for the CPU share.
+
+How to test: download from the server's LAN IP on the usual channel (`CHANNEL = 136` or whichever is the strongest), note the
+speed and the status text. Expect: speed above the previous ~8.5 MB/s, `frames/batches` well above 1, `HOOKMS` lower per MB.
+If anything breaks (no traffic, traps, corrupt downloads), say which commit you tested; `git checkout e0046f1~1` etc. gives
+the build before each step.

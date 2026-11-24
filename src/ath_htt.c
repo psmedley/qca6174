@@ -57,9 +57,10 @@ USHORT g_htt_ready;
 USHORT g_rx_why[8];
 UCHAR  g_rx_decap_last, g_rx_fc_last;
 ULONG  g_rx_attn_last;
-USHORT g_txl_max, g_txl_n, g_txl_h[6], g_txst[4];
+USHORT g_txl_max;
+ULONG  g_txl_n, g_txl_h[6], g_txst[4];
 ULONG  g_txl_sum;
-USHORT g_htt_txok, g_htt_txfail, g_htt_txfull, g_htt_rxfrm, g_htt_rxdrop, g_htt_rxind, g_htt_txcompl;
+ULONG  g_htt_txok, g_htt_txfail, g_htt_txfull, g_htt_rxfrm, g_htt_rxdrop, g_htt_rxind, g_htt_txcompl;
 
 static DMA     g_rxring, g_rxidx, g_rb[RX_NBUF_MAX], g_txpool;
 static UCHAR   g_rb_free[RX_NBUF_MAX];
@@ -291,7 +292,7 @@ static void stat_tx(void)
 /* Receive rate statistics from rx_ppdu_start (descriptor offset 84): preamble in info1 (+104) bits 31:24 (4 legacy,
  * 8/9 HT, 12/13 VHT), HT-SIG/VHT-SIG-A in info2 (+108) and info3 (+112). */
 #define RXD_PPDU_START      84
-USHORT g_rr_pre[3], g_rr_vmcs[10], g_rr_hmcs[16], g_rr_bw[4], g_rr_nss[3], g_rr_sgi, g_rr_n;
+ULONG  g_rr_pre[3], g_rr_vmcs[10], g_rr_hmcs[16], g_rr_bw[4], g_rr_nss[3], g_rr_sgi, g_rr_n;
 UCHAR  g_rr_rssi;
 
 static void rx_rate(UCHAR FAR *d)
@@ -322,7 +323,7 @@ static void rx_rate(UCHAR FAR *d)
 
 /* Duplicate diagnostics (802.11 level): frames with the retry bit, frames repeating the last sequence number of their TID,
  * frames whose sequence number went backwards. */
-USHORT g_rx_retry, g_rx_seqsame, g_rx_seqback, g_rx_retry_same, g_rx_ampdu_first;
+ULONG  g_rx_retry, g_rx_seqsame, g_rx_seqback, g_rx_retry_same, g_rx_ampdu_first;
 static USHORT g_last_seq[16] = { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
                                  0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF };
 
@@ -366,7 +367,7 @@ static void rx_trace(UCHAR FAR *pl, UCHAR FAR *eth, USHORT n)
 /* Optional duplicate filter (PROTOCOL.INI DEDUP = 1): an IPv4 frame identical to one of the last 64 delivered (IP header
  * incl. id, plus the first 8 payload bytes) is dropped. Retransmissions carry a new IP id, so they are not affected. */
 UCHAR  g_dedup;
-USHORT g_rx_dedup;
+ULONG  g_rx_dedup;
 static USHORT g_dd_a[64], g_dd_b[64], g_dd_n;
 
 static int rx_is_dup(UCHAR FAR *eth, USHORT n)

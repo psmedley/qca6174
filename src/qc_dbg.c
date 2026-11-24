@@ -235,16 +235,19 @@ static void ph(ULONG v, USHORT digits)
 }
 static void nl(void) { ps("\r\n"); }
 
-extern USHORT g_t2h_seen[16], g_t2h_other, g_rx_nbuf, g_txl_max, g_txl_n, g_txl_h[6], g_txst[4];
+extern USHORT g_t2h_seen[16], g_t2h_other, g_rx_nbuf, g_txl_max;
+extern ULONG  g_txl_n, g_txl_h[6], g_txst[4];
 extern ULONG g_txl_sum;
-extern USHORT g_ind_frames, g_ind_batches;
+extern ULONG  g_ind_frames, g_ind_batches;
 extern USHORT g_tr_sc[64], g_tr_id[64], g_tr_ts[64], g_tr_len[64], g_tr_ttl[64], g_tr_n;
-extern USHORT g_rx_retry, g_rx_seqsame, g_rx_seqback, g_rx_retry_same;
-extern USHORT g_rr_pre[3], g_rr_vmcs[10], g_rr_hmcs[16], g_rr_bw[4], g_rr_nss[3], g_rr_sgi, g_rr_n;
+extern ULONG  g_rx_retry, g_rx_seqsame, g_rx_seqback, g_rx_retry_same;
+extern ULONG  g_rr_pre[3], g_rr_vmcs[10], g_rr_hmcs[16], g_rr_bw[4], g_rr_nss[3], g_rr_sgi, g_rr_n;
 extern UCHAR g_rr_rssi;
-extern USHORT g_pps_rx_max, g_pps_tx_max, g_lat_max, g_lat_n;
+extern USHORT g_pps_rx_max, g_pps_tx_max, g_lat_max;
+extern ULONG  g_lat_n, g_hook_ms;
 extern ULONG g_lat_sum;
-extern USHORT g_wmi_events, g_mgmt_rx, g_htc_drops, g_svc_runs, g_hook_runs;
+extern USHORT g_wmi_events, g_mgmt_rx, g_htc_drops;
+extern ULONG  g_svc_runs, g_hook_runs;
 extern USHORT g_rx_why[8], g_tx_calls, g_tx_why[8], g_tx_last_len, g_tx_last_et;
 extern int    g_tx_last_rc;
 USHORT ndis_state(USHORT what);
@@ -280,8 +283,8 @@ static void build_status(void)
    ps("FWMAC=");
    for (i = 0; i < 6; i++) { ph(g_wmi_mac[i], 2); if (i < 5) ps(":"); }
    nl();
-   ps("NETS="); ph(g_nnet, 4); ps(" IRQS="); ph(g_irq_count, 4); ps(" SPUR="); ph(g_irq_spurious, 4);
-   ps(" HOOK="); ph(g_hook_runs, 4); ps(" SVC="); ph(g_svc_runs, 4); ps(" WMIEV="); ph(g_wmi_events, 4);
+   ps("NETS="); ph(g_nnet, 4); ps(" IRQS="); ph(g_irq_count, 8); ps(" SPUR="); ph(g_irq_spurious, 4);
+   ps(" HOOK="); ph(g_hook_runs, 8); ps(" SVC="); ph(g_svc_runs, 8); ps(" WMIEV="); ph(g_wmi_events, 4);
    ps(" MGMTRX="); ph(g_mgmt_rx, 4); ps(" HTCDROP="); ph(g_htc_drops, 4); nl();
    ps("SCANCH="); ph(g_scan_visit[2], 4); ph(g_scan_visit[1], 4); ph(g_scan_visit[0], 4);
    ps(" SCEV="); ph(g_scan_events, 4); ps(" LASTTYPE="); ph(g_scan_last_type, 4); nl();
@@ -305,9 +308,9 @@ static void build_status(void)
    ps("LINK="); ps(g_joined ? "JOINED " : "none "); ph(g_jch, 2); ps(" AID="); ph(g_jaid, 4);
    ps(" JFAIL="); ph(g_jfail, 2); ps(" AUTH="); ph(g_auth_status, 4); ps(" ASSOC="); ph(g_assoc_status, 4);
    ps(g_open_net ? " OPEN" : " RSN"); ps(g_ptk_on ? " PTK" : " nokey"); ps(g_authorized ? " AUTHORIZED" : ""); nl();
-   ps("HTT="); ps(g_htt_ready ? "ready" : "down"); ps(" RXBUF="); ph(g_rx_nbuf, 2); ps(" RXIND="); ph(g_htt_rxind, 4); ps(" RXFRM="); ph(g_htt_rxfrm, 4);
-   ps(" RXDROP="); ph(g_htt_rxdrop, 4); ps(" TXOK="); ph(g_htt_txok, 4); ps(" TXCOMPL="); ph(g_htt_txcompl, 4);
-   ps(" TXFAIL="); ph(g_htt_txfail, 4); ps(" TXFULL="); ph(g_htt_txfull, 4); nl();
+   ps("HTT="); ps(g_htt_ready ? "ready" : "down"); ps(" RXBUF="); ph(g_rx_nbuf, 2); ps(" RXIND="); ph(g_htt_rxind, 8); ps(" RXFRM="); ph(g_htt_rxfrm, 8);
+   ps(" RXDROP="); ph(g_htt_rxdrop, 8); ps(" TXOK="); ph(g_htt_txok, 8); ps(" TXCOMPL="); ph(g_htt_txcompl, 8);
+   ps(" TXFAIL="); ph(g_htt_txfail, 8); ps(" TXFULL="); ph(g_htt_txfull, 8); nl();
    ps("RXWHY=");
    for (i = 0; i < 8; i++) { ph(g_rx_why[i], 4); ps(i < 7 ? "," : ""); }
    ps(" LAST decap="); ph(g_rx_decap_last, 2); ps(" fc0="); ph(g_rx_fc_last, 2); ps(" attn="); ph(g_rx_attn_last, 8); nl();
@@ -315,12 +318,12 @@ static void build_status(void)
    ps(" rxbufs="); ph(ndis_state(6), 2); ps(" txbuf="); ph(ndis_state(7), 1); ps(" tx="); ph(ndis_state(2), 4);
    ps(" txhw="); ph(ndis_state(3), 4); ps(" rx="); ph(ndis_state(4), 4); ps(" nobuf="); ph(ndis_state(5), 4); nl();
    ps("NDISQ hi="); ph(ndis_state(9), 4); ps(" hooks="); ph(ndis_state(10), 4); ps(" dropbusy="); ph(ndis_state(11), 4);
-   ps(" dropoff="); ph(ndis_state(12), 4); ps(" frames="); ph(g_ind_frames, 4); ps(" batches="); ph(g_ind_batches, 4); nl();
+   ps(" dropoff="); ph(ndis_state(12), 4); ps(" frames="); ph(g_ind_frames, 8); ps(" batches="); ph(g_ind_batches, 8); nl();
    ps("RATE rxpps="); ph(g_pps_rx_max, 4); ps(" txpps="); ph(g_pps_tx_max, 4);
-   ps(" irq2hook max="); ph(g_lat_max, 4); ps("ms n="); ph(g_lat_n, 4); ps(" sumlo="); ph((USHORT)g_lat_sum, 4); nl();
+   ps(" HOOKMS="); ph(g_hook_ms, 8); ps(" irq2hook max="); ph(g_lat_max, 4); ps("ms n="); ph(g_lat_n, 8); ps(" sumlo="); ph(g_lat_sum, 8); nl();
    ps("T2H="); for (i = 0; i < 16; i++) { ph(g_t2h_seen[i], 4); ps(i < 15 ? "," : ""); } ps(" other="); ph(g_t2h_other, 4); nl();
-   ps("RXDUP retry="); ph(g_rx_retry, 4); ps(" seqsame="); ph(g_rx_seqsame, 4); ps(" seqback="); ph(g_rx_seqback, 4);
-   ps(" retry&same="); ph(g_rx_retry_same, 4); ps(" DEDUP="); ph(g_dedup, 1); ps(" dropped="); ph(g_rx_dedup, 4); nl();
+   ps("RXDUP retry="); ph(g_rx_retry, 8); ps(" seqsame="); ph(g_rx_seqsame, 8); ps(" seqback="); ph(g_rx_seqback, 8);
+   ps(" retry&same="); ph(g_rx_retry_same, 8); ps(" DEDUP="); ph(g_dedup, 1); ps(" dropped="); ph(g_rx_dedup, 8); nl();
    ps("RXTRACE (80211seq,ipid,tcpseq16,len,ttl+tos; oldest first)"); nl();
    {
       USHORT k, j;
@@ -333,14 +336,14 @@ static void build_status(void)
       }
       nl();
    }
-   ps("RXRATE n="); ph(g_rr_n, 4); ps(" pre(leg,ht,vht)="); for (i = 0; i < 3; i++) { ph(g_rr_pre[i], 4); ps(i < 2 ? "," : ""); }
-   ps(" bw(20,40,80,160)="); for (i = 0; i < 4; i++) { ph(g_rr_bw[i], 4); ps(i < 3 ? "," : ""); }
-   ps(" nss1,2="); ph(g_rr_nss[1], 4); ps(","); ph(g_rr_nss[2], 4); ps(" sgi="); ph(g_rr_sgi, 4); ps(" rssi="); ph(g_rr_rssi, 2); nl();
-   ps("RXVHTMCS0-9="); for (i = 0; i < 10; i++) { ph(g_rr_vmcs[i], 4); ps(i < 9 ? "," : ""); } nl();
-   ps("RXHTMCS0-15="); for (i = 0; i < 16; i++) { ph(g_rr_hmcs[i], 4); ps(i < 15 ? "," : ""); } nl();
-   ps("TXLAT max="); ph(g_txl_max, 4); ps("ms n="); ph(g_txl_n, 4); ps(" sum="); ph((USHORT)g_txl_sum, 4); ps(" hist(<2,4,8,16,32,>=32)=");
-   for (i = 0; i < 6; i++) { ph(g_txl_h[i], 4); ps(i < 5 ? "," : ""); }
-   ps(" STAT(ok,disc,noack,postp)="); for (i = 0; i < 4; i++) { ph(g_txst[i], 4); ps(i < 3 ? "," : ""); } nl();
+   ps("RXRATE n="); ph(g_rr_n, 8); ps(" pre(leg,ht,vht)="); for (i = 0; i < 3; i++) { ph(g_rr_pre[i], 8); ps(i < 2 ? "," : ""); }
+   ps(" bw(20,40,80,160)="); for (i = 0; i < 4; i++) { ph(g_rr_bw[i], 8); ps(i < 3 ? "," : ""); }
+   ps(" nss1,2="); ph(g_rr_nss[1], 8); ps(","); ph(g_rr_nss[2], 8); ps(" sgi="); ph(g_rr_sgi, 8); ps(" rssi="); ph(g_rr_rssi, 2); nl();
+   ps("RXVHTMCS0-9="); for (i = 0; i < 10; i++) { ph(g_rr_vmcs[i], 6); ps(i < 9 ? "," : ""); } nl();
+   ps("RXHTMCS0-15="); for (i = 0; i < 16; i++) { ph(g_rr_hmcs[i], 6); ps(i < 15 ? "," : ""); } nl();
+   ps("TXLAT max="); ph(g_txl_max, 4); ps("ms n="); ph(g_txl_n, 8); ps(" sum="); ph((USHORT)g_txl_sum, 4); ps(" hist(<2,4,8,16,32,>=32)=");
+   for (i = 0; i < 6; i++) { ph(g_txl_h[i], 6); ps(i < 5 ? "," : ""); }
+   ps(" STAT(ok,disc,noack,postp)="); for (i = 0; i < 4; i++) { ph(g_txst[i], 6); ps(i < 3 ? "," : ""); } nl();
    ps("TXCALLS="); ph(g_tx_calls, 4); ps(" WHY(open,link,buf,big,map,refused,busy,ok)=");
    for (i = 0; i < 8; i++) { ph(g_tx_why[i], 4); ps(i < 7 ? "," : ""); }
    ps(" LAST len="); ph(g_tx_last_len, 4); ps(" type="); ph(g_tx_last_et, 4); ps(" rc="); ph((USHORT)g_tx_last_rc, 4); nl();

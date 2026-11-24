@@ -75,7 +75,8 @@ void   intx_enable(void);
 void   intx_disable_clear(void);
 void   hook_arm(void);                   /* SetIRQ (shared) on the PCI interrupt line                       */
 void   irq_unhook(void);
-extern USHORT g_irq_hooked, g_irq_count, g_irq_spurious;
+extern USHORT g_irq_hooked, g_irq_spurious;
+extern ULONG  g_irq_count;
 
 /* ---- DMA memory (qc_mem.c) ------------------------------------------------------------------------ *
  * Physically contiguous 64 KB chunks from AllocPhys, each with a permanent GDT selector (allocated at
@@ -270,7 +271,7 @@ int    wmi_peer_assoc(UCHAR FAR *addr, USHORT aid, USHORT caps, USHORT listen, U
 extern UCHAR g_use_ht, g_qos, g_ht_mcs[2], g_ht_nss;
 extern UCHAR g_forcech;
 extern UCHAR g_dedup;
-extern USHORT g_rx_dedup;
+extern ULONG  g_rx_dedup;
 extern UCHAR g_cw, g_sco, g_cc0, g_maxw;                  /* channel width in use (0 20, 1 40, 2 80 MHz), secondary offset, 80 MHz centre index, limit */
 int    wmi_peer_authorize(UCHAR FAR *addr);
 int    wmi_install_key(UCHAR FAR *addr, UCHAR idx, USHORT group, UCHAR FAR *key, USHORT klen);
@@ -284,7 +285,7 @@ extern UCHAR  g_assoc_res[192];
 
 /* ---- HTT (ath_htt.c) ----------------------------------------------------------------------------- */
 extern USHORT g_htt_ready;
-extern USHORT g_htt_txok, g_htt_txfail, g_htt_txfull, g_htt_rxfrm, g_htt_rxdrop, g_htt_rxind, g_htt_txcompl;
+extern ULONG  g_htt_txok, g_htt_txfail, g_htt_txfull, g_htt_rxfrm, g_htt_rxdrop, g_htt_rxind, g_htt_txcompl;
 int    htt_setup(void);                       /* version, rx ring, aggregation limits                      */
 void   htt_reset(void);
 void   htt_rx(UCHAR FAR *p, USHORT len);      /* every message of the HTT endpoint                          */

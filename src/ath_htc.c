@@ -184,7 +184,7 @@ void htc_rx(USHORT pipe, UCHAR FAR *p, USHORT len)
 
 /* ---- the service loop ----------------------------------------------------------------------------- */
 static USHORT g_svc_lock, g_svc_again;
-USHORT        g_svc_runs;
+ULONG         g_svc_runs;
 
 static void service_once(void)
 {

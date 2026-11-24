@@ -183,7 +183,8 @@ int ndis_set_mac(UCHAR *m)
 /* ---- receive ---------------------------------------------------------------------------------------- */
 static BYTE   g_indicate;
 static USHORT g_ind_off, g_ind_owner;
-USHORT        g_ind_drop_busy, g_ind_drop_off, g_ind_tmo, g_ind_reent, g_q_hi, g_hook_n, g_hook_max;
+USHORT        g_ind_drop_busy, g_ind_drop_off, g_ind_tmo, g_ind_reent, g_q_hi, g_hook_max;
+ULONG         g_hook_n;
 #define IND_WAIT_ROUNDS 16
 
 UCHAR FAR *ndis_rx_get(USHORT *handle)
@@ -245,7 +246,7 @@ static UCHAR  g_q_h[RXP_N];
 static USHORT g_q_len[RXP_N];
 static USHORT g_q_head, g_q_tail;
 #define IND_BATCH 32                                  /* frames per IndicationComplete                         */
-USHORT g_ind_batches, g_ind_frames;
+ULONG  g_ind_batches, g_ind_frames;
 
 void ndis_hook_deliver(void)
 {
@@ -643,7 +644,7 @@ USHORT ndis_state(USHORT what)
    case 7:  return (USHORT)(g_txbuf.phys != 0UL);
    case 8:  return g_ndis_reg;
    case 9:  return g_q_hi;
-   case 10: return g_hook_n;
+   case 10: return (USHORT)g_hook_n;
    case 11: return g_ind_drop_busy;
    case 12: return g_ind_drop_off;
    }
