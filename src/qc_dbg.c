@@ -235,7 +235,7 @@ static void ph(ULONG v, USHORT digits)
 }
 static void nl(void) { ps("\r\n"); }
 
-extern USHORT g_t2h_seen[16], g_t2h_other;
+extern USHORT g_t2h_seen[16], g_t2h_other, g_rx_nbuf;
 extern USHORT g_pps_rx_max, g_pps_tx_max, g_lat_max, g_lat_n;
 extern ULONG g_lat_sum;
 extern USHORT g_wmi_events, g_mgmt_rx, g_htc_drops, g_svc_runs, g_hook_runs;
@@ -299,7 +299,7 @@ static void build_status(void)
    ps("LINK="); ps(g_joined ? "JOINED " : "none "); ph(g_jch, 2); ps(" AID="); ph(g_jaid, 4);
    ps(" JFAIL="); ph(g_jfail, 2); ps(" AUTH="); ph(g_auth_status, 4); ps(" ASSOC="); ph(g_assoc_status, 4);
    ps(g_open_net ? " OPEN" : " RSN"); ps(g_ptk_on ? " PTK" : " nokey"); ps(g_authorized ? " AUTHORIZED" : ""); nl();
-   ps("HTT="); ps(g_htt_ready ? "ready" : "down"); ps(" RXIND="); ph(g_htt_rxind, 4); ps(" RXFRM="); ph(g_htt_rxfrm, 4);
+   ps("HTT="); ps(g_htt_ready ? "ready" : "down"); ps(" RXBUF="); ph(g_rx_nbuf, 2); ps(" RXIND="); ph(g_htt_rxind, 4); ps(" RXFRM="); ph(g_htt_rxfrm, 4);
    ps(" RXDROP="); ph(g_htt_rxdrop, 4); ps(" TXOK="); ph(g_htt_txok, 4); ps(" TXCOMPL="); ph(g_htt_txcompl, 4);
    ps(" TXFAIL="); ph(g_htt_txfail, 4); ps(" TXFULL="); ph(g_htt_txfull, 4); nl();
    ps("RXWHY=");

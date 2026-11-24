@@ -30,8 +30,9 @@
 #define T2H_MGMT_TX_COMPL   0x0E
 #define T2H_RX_IN_ORD_PADDR_IND 0x12
 
-#define RXRING_N            128                  /* entries (HTT_RX_RING_SIZE_MIN); fill stays below half       */
-#define RX_NBUF             62
+#define RXRING_N            256                  /* entries; the fill stays below half of it                    */
+#define RX_NBUF_MAX         124                  /* 4 chunks of 31 buffers (the last two are optional)          */
+#define RX_NBUF             g_rx_nbuf            /* 62 with two chunks, 124 with four                           */
 #define RX_PER_CHUNK        31                   /* 31 x 2048 = 63488 bytes fit one 64 KB chunk                 */
 #define RX_BUF_SZ           2048
 #define RXD_ATTENTION       4                    /* offsets inside the 300-byte descriptor (struct htt_rx_desc_v1) */
@@ -58,8 +59,9 @@ UCHAR  g_rx_decap_last, g_rx_fc_last;
 ULONG  g_rx_attn_last;
 USHORT g_htt_txok, g_htt_txfail, g_htt_txfull, g_htt_rxfrm, g_htt_rxdrop, g_htt_rxind, g_htt_txcompl;
 
-static DMA     g_rxring, g_rxidx, g_rb[RX_NBUF], g_txpool;
-static UCHAR   g_rb_free[RX_NBUF];
+static DMA     g_rxring, g_rxidx, g_rb[RX_NBUF_MAX], g_txpool;
+static UCHAR   g_rb_free[RX_NBUF_MAX];
+USHORT         g_rx_nbuf = 62;
 static USHORT  g_rx_wr, g_rx_fill, g_alloc_done;
 static UCHAR   g_tx_busy[TX_N];
 static ULONG   g_tx_t[TX_N];
@@ -92,25 +94,31 @@ static void p16(UCHAR FAR *p, USHORT v)
 /* ---- receive ring ------------------------------------------------------------------------------- */
 static int rx_alloc(void)
 {
-   static DMA a, b;                              /* addresses are passed on: static, not on the stack       */
-   USHORT i, k;
+   static DMA a[4];                              /* addresses are passed on: static, not on the stack       */
+   USHORT i, k, c, nc = 0;
    ULONG  off;
 
    if (g_alloc_done)
       return 0;
    if (dma_get(RXRING_N * 4, &g_rxring) || dma_get(8, &g_rxidx) ||
-       dma_get(RX_CHUNK_BYTES, &a) || dma_get(RX_CHUNK_BYTES, &b) ||
+       dma_get(RX_CHUNK_BYTES, &a[0]) || dma_get(RX_CHUNK_BYTES, &a[1]) ||
        dma_get(TX_POOL_BYTES, &g_txpool))
       return -1;
-   for (i = 0; i < RX_NBUF; i++) {
-      DMA *src = (i < RX_PER_CHUNK) ? &a : &b;
-
-      k = (USHORT)((i < RX_PER_CHUNK) ? i : i - RX_PER_CHUNK);
-      off = (ULONG)k << 11;                      /* k * 2048                                                   */
-      g_rb[i].sel  = src->sel;
-      g_rb[i].off  = (USHORT)(src->off + (USHORT)off);
-      g_rb[i].phys = src->phys + off;
+   nc = 2;
+   if (dma_get(RX_CHUNK_BYTES, &a[2]) == 0) {      /* more buffers when the memory is there: bursts of high-rate A-MPDUs */
+      nc = 3;
+      if (dma_get(RX_CHUNK_BYTES, &a[3]) == 0)
+         nc = 4;
    }
+   g_rx_nbuf = (USHORT)(nc == 4 ? 124 : (nc == 3 ? 93 : 62));
+   i = 0;
+   for (c = 0; c < nc; c++)
+      for (k = 0; k < RX_PER_CHUNK; k++, i++) {
+         off = (ULONG)k << 11;                   /* k * 2048                                                   */
+         g_rb[i].sel  = a[c].sel;
+         g_rb[i].off  = (USHORT)(a[c].off + (USHORT)off);
+         g_rb[i].phys = a[c].phys + off;
+      }
    g_alloc_done = 1;
    return 0;
 }
