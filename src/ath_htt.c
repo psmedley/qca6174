@@ -57,6 +57,8 @@ USHORT g_htt_ready;
 USHORT g_rx_why[8];
 UCHAR  g_rx_decap_last, g_rx_fc_last;
 ULONG  g_rx_attn_last;
+USHORT g_txl_max, g_txl_n, g_txl_h[6], g_txst[4];
+ULONG  g_txl_sum;
 USHORT g_htt_txok, g_htt_txfail, g_htt_txfull, g_htt_rxfrm, g_htt_rxdrop, g_htt_rxind, g_htt_txcompl;
 
 static DMA     g_rxring, g_rxidx, g_rb[RX_NBUF_MAX], g_txpool;
@@ -416,10 +418,22 @@ static void tx_compl(UCHAR FAR *p, USHORT len)
    for (i = 0; i < n; i++) {
       id = (USHORT)(p[4 + (i << 1)] | (p[5 + (i << 1)] << 8));
       if (id < TX_N) {
+         ULONG  d = qc_ms() - g_tx_t[id];                 /* submit -> completion, ms                         */
+         USHORT b = 0;
+
+         if (g_tx_busy[id] && d < 100000UL) {
+            if (d > g_txl_max) g_txl_max = (USHORT)d;
+            g_txl_sum += d;
+            g_txl_n++;
+            while (b < 5 && d >= (ULONG)(2 << b))        /* buckets: <2, <4, <8, <16, <32, >=32 ms           */
+               b++;
+            g_txl_h[b]++;
+         }
          g_tx_busy[id] = 0;
          g_htt_txcompl++;
       }
    }
+   g_txst[p[1] & 3] += n;                                 /* status per MSDU: 0 ok, 1 discard, 2 no ack, 3 postpone */
    if ((p[1] & 7) != 0)
       g_htt_txfail++;                                     /* discarded / no ack                               */
 }

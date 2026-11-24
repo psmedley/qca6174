@@ -235,7 +235,8 @@ static void ph(ULONG v, USHORT digits)
 }
 static void nl(void) { ps("\r\n"); }
 
-extern USHORT g_t2h_seen[16], g_t2h_other, g_rx_nbuf;
+extern USHORT g_t2h_seen[16], g_t2h_other, g_rx_nbuf, g_txl_max, g_txl_n, g_txl_h[6], g_txst[4];
+extern ULONG g_txl_sum;
 extern USHORT g_pps_rx_max, g_pps_tx_max, g_lat_max, g_lat_n;
 extern ULONG g_lat_sum;
 extern USHORT g_wmi_events, g_mgmt_rx, g_htc_drops, g_svc_runs, g_hook_runs;
@@ -313,6 +314,9 @@ static void build_status(void)
    ps("RATE rxpps="); ph(g_pps_rx_max, 4); ps(" txpps="); ph(g_pps_tx_max, 4);
    ps(" irq2hook max="); ph(g_lat_max, 4); ps("ms n="); ph(g_lat_n, 4); ps(" sumlo="); ph((USHORT)g_lat_sum, 4); nl();
    ps("T2H="); for (i = 0; i < 16; i++) { ph(g_t2h_seen[i], 4); ps(i < 15 ? "," : ""); } ps(" other="); ph(g_t2h_other, 4); nl();
+   ps("TXLAT max="); ph(g_txl_max, 4); ps("ms n="); ph(g_txl_n, 4); ps(" sum="); ph((USHORT)g_txl_sum, 4); ps(" hist(<2,4,8,16,32,>=32)=");
+   for (i = 0; i < 6; i++) { ph(g_txl_h[i], 4); ps(i < 5 ? "," : ""); }
+   ps(" STAT(ok,disc,noack,postp)="); for (i = 0; i < 4; i++) { ph(g_txst[i], 4); ps(i < 3 ? "," : ""); } nl();
    ps("TXCALLS="); ph(g_tx_calls, 4); ps(" WHY(open,link,buf,big,map,refused,busy,ok)=");
    for (i = 0; i < 8; i++) { ph(g_tx_why[i], 4); ps(i < 7 ? "," : ""); }
    ps(" LAST len="); ph(g_tx_last_len, 4); ps(" type="); ph(g_tx_last_et, 4); ps(" rc="); ph((USHORT)g_tx_last_rc, 4); nl();
