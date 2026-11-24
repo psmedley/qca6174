@@ -68,3 +68,5 @@ firmware-reported RF chain count (`RFCHAINS=` in the status text) for the HT str
 (copy both to `\DEV\WRND32$` as for the QCA6174; the NIF, PROTOCOL.INI names and the rest are unchanged).
 Please send the `copy \DEV\WRND32$ con` status text; the first things to check are `ID=168C:0042`, `CHIP=`/`TARGET=`
 (expected target version `05020000` or `05020001`), `STATE=` and `RFCHAINS=`.
+
+Firmware files for each card live in `bin/firmware/<chip>/` (see `bin/firmware/README.md`).
