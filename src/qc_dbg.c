@@ -214,7 +214,7 @@ void qc_dev_write(USHORT sfn, ULONG phys, USHORT n)
 }
 
 /* ---- status text ----------------------------------------------------------------------------------- */
-static char   g_txt[5200];
+static char   g_txt[7000];
 static USHORT g_tn;
 
 static void ps(const char *s) { while (*s && g_tn < sizeof(g_txt) - 1) g_txt[g_tn++] = *s++; }
@@ -237,6 +237,7 @@ static void nl(void) { ps("\r\n"); }
 
 extern USHORT g_t2h_seen[16], g_t2h_other, g_rx_nbuf, g_txl_max, g_txl_n, g_txl_h[6], g_txst[4];
 extern ULONG g_txl_sum;
+extern USHORT g_tr_sc[64], g_tr_id[64], g_tr_ts[64], g_tr_len[64], g_tr_n;
 extern USHORT g_rx_retry, g_rx_seqsame, g_rx_seqback, g_rx_retry_same;
 extern USHORT g_rr_pre[3], g_rr_vmcs[10], g_rr_hmcs[16], g_rr_bw[4], g_rr_nss[3], g_rr_sgi, g_rr_n;
 extern UCHAR g_rr_rssi;
@@ -319,6 +320,18 @@ static void build_status(void)
    ps("T2H="); for (i = 0; i < 16; i++) { ph(g_t2h_seen[i], 4); ps(i < 15 ? "," : ""); } ps(" other="); ph(g_t2h_other, 4); nl();
    ps("RXDUP retry="); ph(g_rx_retry, 4); ps(" seqsame="); ph(g_rx_seqsame, 4); ps(" seqback="); ph(g_rx_seqback, 4);
    ps(" retry&same="); ph(g_rx_retry_same, 4); nl();
+   ps("RXTRACE (80211seq,ipid,tcpseq16,len; oldest first)"); nl();
+   {
+      USHORT k, j;
+
+      for (k = 0; k < 64; k++) {
+         j = (USHORT)((g_tr_n + k) & 63);
+         if (!g_tr_len[j]) continue;
+         ph(g_tr_sc[j], 3); ps(","); ph(g_tr_id[j], 4); ps(","); ph(g_tr_ts[j], 4); ps(","); ph(g_tr_len[j], 3);
+         ps((k & 3) == 3 ? "\r\n" : " ");
+      }
+      nl();
+   }
    ps("RXRATE n="); ph(g_rr_n, 4); ps(" pre(leg,ht,vht)="); for (i = 0; i < 3; i++) { ph(g_rr_pre[i], 4); ps(i < 2 ? "," : ""); }
    ps(" bw(20,40,80,160)="); for (i = 0; i < 4; i++) { ph(g_rr_bw[i], 4); ps(i < 3 ? "," : ""); }
    ps(" nss1,2="); ph(g_rr_nss[1], 4); ps(","); ph(g_rr_nss[2], 4); ps(" sgi="); ph(g_rr_sgi, 4); ps(" rssi="); ph(g_rr_rssi, 2); nl();

@@ -341,6 +341,26 @@ static void rx_dupstat(UCHAR FAR *pl, USHORT hl_qos_off, UCHAR fc0, UCHAR fc1)
    g_last_seq[tid] = seq;
 }
 
+/* Trace of the last 64 received IPv4/TCP frames: 802.11 sequence number, IP id, low 16 bits of the TCP sequence number, length. */
+#define TRN 64
+USHORT g_tr_sc[TRN], g_tr_id[TRN], g_tr_ts[TRN], g_tr_len[TRN], g_tr_n;
+
+static void rx_trace(UCHAR FAR *pl, UCHAR FAR *eth, USHORT n)
+{
+   USHORT i = (USHORT)(g_tr_n & (TRN - 1)), ihl;
+
+   if (n < 14 + 20 + 20 || eth[12] != 0x08 || eth[13] != 0x00 || eth[14 + 9] != 6)
+      return;
+   ihl = (USHORT)((eth[14] & 0x0F) << 2);
+   if (n < 14 + ihl + 8)
+      return;
+   g_tr_sc[i]  = (USHORT)((pl[22] | (pl[23] << 8)) >> 4);
+   g_tr_id[i]  = (USHORT)((eth[14 + 4] << 8) | eth[14 + 5]);
+   g_tr_ts[i]  = (USHORT)((eth[14 + ihl + 6] << 8) | eth[14 + ihl + 7]);
+   g_tr_len[i] = n;
+   g_tr_n++;
+}
+
 static void rx_msdu(USHORT b, USHORT mlen)
 {
    UCHAR FAR *d = DPTR(g_rb[b]);
@@ -422,6 +442,7 @@ static void rx_msdu(USHORT b, USHORT mlen)
    rt_movmem((PVOID)(g_eth + 14), body, blen);
    g_htt_rxfrm++;
    stat_rx();
+   rx_trace(pl, (UCHAR FAR *)g_eth, n);
    sta_rx_eth((UCHAR FAR *)g_eth, n);
 }
 
