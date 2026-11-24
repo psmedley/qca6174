@@ -237,7 +237,7 @@ static void nl(void) { ps("\r\n"); }
 
 extern USHORT g_t2h_seen[16], g_t2h_other, g_rx_nbuf, g_txl_max, g_txl_n, g_txl_h[6], g_txst[4];
 extern ULONG g_txl_sum;
-extern USHORT g_tr_sc[64], g_tr_id[64], g_tr_ts[64], g_tr_len[64], g_tr_n;
+extern USHORT g_tr_sc[64], g_tr_id[64], g_tr_ts[64], g_tr_len[64], g_tr_ttl[64], g_tr_n;
 extern USHORT g_rx_retry, g_rx_seqsame, g_rx_seqback, g_rx_retry_same;
 extern USHORT g_rr_pre[3], g_rr_vmcs[10], g_rr_hmcs[16], g_rr_bw[4], g_rr_nss[3], g_rr_sgi, g_rr_n;
 extern UCHAR g_rr_rssi;
@@ -320,14 +320,14 @@ static void build_status(void)
    ps("T2H="); for (i = 0; i < 16; i++) { ph(g_t2h_seen[i], 4); ps(i < 15 ? "," : ""); } ps(" other="); ph(g_t2h_other, 4); nl();
    ps("RXDUP retry="); ph(g_rx_retry, 4); ps(" seqsame="); ph(g_rx_seqsame, 4); ps(" seqback="); ph(g_rx_seqback, 4);
    ps(" retry&same="); ph(g_rx_retry_same, 4); ps(" DEDUP="); ph(g_dedup, 1); ps(" dropped="); ph(g_rx_dedup, 4); nl();
-   ps("RXTRACE (80211seq,ipid,tcpseq16,len; oldest first)"); nl();
+   ps("RXTRACE (80211seq,ipid,tcpseq16,len,ttl+tos; oldest first)"); nl();
    {
       USHORT k, j;
 
       for (k = 0; k < 64; k++) {
          j = (USHORT)((g_tr_n + k) & 63);
          if (!g_tr_len[j]) continue;
-         ph(g_tr_sc[j], 3); ps(","); ph(g_tr_id[j], 4); ps(","); ph(g_tr_ts[j], 4); ps(","); ph(g_tr_len[j], 3);
+         ph(g_tr_sc[j], 3); ps(","); ph(g_tr_id[j], 4); ps(","); ph(g_tr_ts[j], 4); ps(","); ph(g_tr_len[j], 3); ps(","); ph(g_tr_ttl[j], 4);
          ps((k & 3) == 3 ? "\r\n" : " ");
       }
       nl();

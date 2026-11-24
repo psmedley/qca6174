@@ -343,7 +343,7 @@ static void rx_dupstat(UCHAR FAR *pl, USHORT hl_qos_off, UCHAR fc0, UCHAR fc1)
 
 /* Trace of the last 64 received IPv4/TCP frames: 802.11 sequence number, IP id, low 16 bits of the TCP sequence number, length. */
 #define TRN 64
-USHORT g_tr_sc[TRN], g_tr_id[TRN], g_tr_ts[TRN], g_tr_len[TRN], g_tr_n;
+USHORT g_tr_sc[TRN], g_tr_id[TRN], g_tr_ts[TRN], g_tr_len[TRN], g_tr_ttl[TRN], g_tr_n;
 
 static void rx_trace(UCHAR FAR *pl, UCHAR FAR *eth, USHORT n)
 {
@@ -358,6 +358,7 @@ static void rx_trace(UCHAR FAR *pl, UCHAR FAR *eth, USHORT n)
    g_tr_id[i]  = (USHORT)((eth[14 + 4] << 8) | eth[14 + 5]);
    g_tr_ts[i]  = (USHORT)((eth[14 + ihl + 6] << 8) | eth[14 + ihl + 7]);
    g_tr_len[i] = n;
+   g_tr_ttl[i] = (USHORT)((eth[14 + 8] << 8) | eth[14 + 1]);   /* TTL and TOS/ECN byte */
    g_tr_n++;
 }
 
@@ -378,7 +379,13 @@ static int rx_is_dup(UCHAR FAR *eth, USHORT n)
    if (len + 14 > n)
       len = (USHORT)(n - 14);
    for (i = 0; i + 1 < len; i += 2) {
+      if (i == 10)
+         continue;                                   /* header checksum: changes with the TTL                */
       w = (USHORT)((eth[14 + i] << 8) | eth[14 + i + 1]);
+      if (i == 0)
+         w &= 0xFF00;                                /* TOS / ECN may differ too                              */
+      if (i == 8)
+         w &= 0x00FF;                                /* TTL: a copy that took another path has a different one */
       a = (USHORT)(a + w);
       b = (USHORT)(((b << 3) | (b >> 13)) ^ w);
    }
