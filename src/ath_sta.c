@@ -275,6 +275,9 @@ static int tx_assoc(net_t *n)
          g_frame[k++] = (UCHAR)mp; g_frame[k++] = (UCHAR)(mp >> 8);       /* tx MCS map                      */
          g_frame[k++] = 0; g_frame[k++] = 0;
       }
+      g_frame[k++] = 221; g_frame[k++] = 7;            /* WMM information element (vendor 00:50:F2, type 2, subtype 0, v1) */
+      g_frame[k++] = 0x00; g_frame[k++] = 0x50; g_frame[k++] = 0xF2;
+      g_frame[k++] = 0x02; g_frame[k++] = 0x00; g_frame[k++] = 0x01; g_frame[k++] = 0x00;
    }
    return wmi_mgmt_tx((UCHAR FAR *)g_frame, k);
 }
