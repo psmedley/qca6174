@@ -206,3 +206,11 @@ never advertised without the vdev actually running on the 80 MHz channel.
 
 `[QCA6174_NIF]` in PROTOCOL.INI: `CHANNEL = 136` joins only an access point whose primary channel is 136 (the status
 text shows `FORCECH=88`, hex); `MAXWIDTH = 20|40|80` limits the width. Use both to compare widths on the same AP.
+
+### Duplicate frames on one access point (DEDUP)
+
+On one AP (channel 149, EAP770) 63% of the TCP data arrived twice: identical IP header (same IP id) and TCP sequence,
+different 802.11 sequence numbers (RXTRACE in the status text), so the AP or the network behind it sends the copies.
+`DEDUP = 1` under `[QCA6174_NIF]` makes the driver drop an IPv4 frame identical to one of the last 64 delivered (header +
+first 8 payload bytes; a real TCP retransmission has a new IP id and passes). The status text shows `DEDUP=1 dropped=...`.
+It is a workaround: the cause (AP or wired side) still needs finding, e.g. a capture on the server during a download.

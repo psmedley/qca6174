@@ -361,6 +361,36 @@ static void rx_trace(UCHAR FAR *pl, UCHAR FAR *eth, USHORT n)
    g_tr_n++;
 }
 
+/* Optional duplicate filter (PROTOCOL.INI DEDUP = 1): an IPv4 frame identical to one of the last 64 delivered (IP header
+ * incl. id, plus the first 8 payload bytes) is dropped. Retransmissions carry a new IP id, so they are not affected. */
+UCHAR  g_dedup;
+USHORT g_rx_dedup;
+static USHORT g_dd_a[64], g_dd_b[64], g_dd_n;
+
+static int rx_is_dup(UCHAR FAR *eth, USHORT n)
+{
+   USHORT ihl, i, a = 0, b = 0x5A5A, w, len;
+
+   if (eth[12] != 0x08 || eth[13] != 0x00 || (eth[14] >> 4) != 4)
+      return 0;
+   ihl = (USHORT)((eth[14] & 0x0F) << 2);
+   len = (USHORT)(ihl + 8);
+   if (len + 14 > n)
+      len = (USHORT)(n - 14);
+   for (i = 0; i + 1 < len; i += 2) {
+      w = (USHORT)((eth[14 + i] << 8) | eth[14 + i + 1]);
+      a = (USHORT)(a + w);
+      b = (USHORT)(((b << 3) | (b >> 13)) ^ w);
+   }
+   for (i = 0; i < 64; i++)
+      if (g_dd_a[i] == a && g_dd_b[i] == b && (g_dd_a[i] | g_dd_b[i]))
+         return 1;
+   g_dd_a[g_dd_n & 63] = a;
+   g_dd_b[g_dd_n & 63] = b;
+   g_dd_n++;
+   return 0;
+}
+
 static void rx_msdu(USHORT b, USHORT mlen)
 {
    UCHAR FAR *d = DPTR(g_rb[b]);
@@ -440,6 +470,7 @@ static void rx_msdu(USHORT b, USHORT mlen)
    n = (USHORT)(14 + blen);
    if (n > 1514) { g_htt_rxdrop++; g_rx_why[6]++; return; }
    rt_movmem((PVOID)(g_eth + 14), body, blen);
+   if (g_dedup && rx_is_dup((UCHAR FAR *)g_eth, n)) { g_rx_dedup++; return; }
    g_htt_rxfrm++;
    stat_rx();
    rx_trace(pl, (UCHAR FAR *)g_eth, n);

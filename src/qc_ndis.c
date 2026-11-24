@@ -526,6 +526,12 @@ static void pi_line(char *l)
          g_maxw = (UCHAR)(w >= 80 ? 2 : (w >= 40 ? 1 : 0));
          return;
       }
+      if (eqn(k, (USHORT)(e - k), "dedup")) {          /* DEDUP = 1: drop IPv4 frames identical to a recent one */
+         for (v = p + 1; *v == ' ' || *v == '\t'; v++)
+            ;
+         g_dedup = (UCHAR)(*v == '1');
+         return;
+      }
       if (eqn(k, (USHORT)(e - k), "channel")) {       /* CHANNEL = n: join only an access point on that primary channel */
          USHORT w = 0;
 

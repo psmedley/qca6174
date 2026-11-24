@@ -319,7 +319,7 @@ static void build_status(void)
    ps(" irq2hook max="); ph(g_lat_max, 4); ps("ms n="); ph(g_lat_n, 4); ps(" sumlo="); ph((USHORT)g_lat_sum, 4); nl();
    ps("T2H="); for (i = 0; i < 16; i++) { ph(g_t2h_seen[i], 4); ps(i < 15 ? "," : ""); } ps(" other="); ph(g_t2h_other, 4); nl();
    ps("RXDUP retry="); ph(g_rx_retry, 4); ps(" seqsame="); ph(g_rx_seqsame, 4); ps(" seqback="); ph(g_rx_seqback, 4);
-   ps(" retry&same="); ph(g_rx_retry_same, 4); nl();
+   ps(" retry&same="); ph(g_rx_retry_same, 4); ps(" DEDUP="); ph(g_dedup, 1); ps(" dropped="); ph(g_rx_dedup, 4); nl();
    ps("RXTRACE (80211seq,ipid,tcpseq16,len; oldest first)"); nl();
    {
       USHORT k, j;
