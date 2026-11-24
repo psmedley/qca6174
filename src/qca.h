@@ -327,6 +327,9 @@ int    sta_key_remove(USHORT pairwise, UCHAR idx);
 void   sta_mgmt_rx(UCHAR FAR *frame, USHORT len);          /* auth / assoc response / deauth / disassoc    */
 int    sta_tx(UCHAR FAR *eth, USHORT len);    /* NDIS data: 0 = queued, -1 = no link, -2 = busy              */
 int    sta_eapol_tx(UCHAR FAR *eth, USHORT len);
+UCHAR FAR *sta_rx_begin(USHORT *h);
+void   sta_rx_commit(USHORT h, USHORT len);
+void   sta_rx_abort(USHORT h);
 void   sta_rx_eth(UCHAR FAR *eth, USHORT len);            /* HTT: a received frame as Ethernet             */
 USHORT sta_eapol_count(void);
 USHORT sta_eapol_get(UCHAR FAR *dst, USHORT max);

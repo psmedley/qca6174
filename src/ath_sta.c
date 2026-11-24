@@ -595,6 +595,30 @@ USHORT sta_eapol_get(UCHAR FAR *dst, USHORT max)
 }
 
 /* A received frame as Ethernet. Runs in the service path (task time). */
+/* Direct receive path (no scratch frame): get an NDIS buffer to build the Ethernet frame in, then commit or abort it. */
+UCHAR FAR *sta_rx_begin(USHORT *h)
+{
+   UCHAR FAR *d;
+
+   if (!g_open_net && !g_ptk_on)                         /* secure network, no keys yet: nothing passes        */
+      return 0;
+   d = ndis_rx_get(h);
+   if (!d)
+      g_rx_nobuf++;
+   return d;
+}
+
+void sta_rx_commit(USHORT h, USHORT len)
+{
+   g_rx_ndis++;
+   ndis_rx_put(h, len);
+}
+
+void sta_rx_abort(USHORT h)
+{
+   ndis_rx_free(h);
+}
+
 void sta_rx_eth(UCHAR FAR *eth, USHORT len)
 {
    USHORT i;

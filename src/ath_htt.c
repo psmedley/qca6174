@@ -69,7 +69,8 @@ static UCHAR   g_tx_busy[TX_N];
 static ULONG   g_tx_t[TX_N];
 static USHORT  g_tx_lock;
 static USHORT  g_htt_ver_done, g_htt_major, g_htt_minor;
-static UCHAR   g_eth[1536];                       /* the Ethernet frame built from a received MSDU            */
+static UCHAR   g_eth[1536];
+static USHORT  g_rx_h;                            /* NDIS receive buffer handle: static (its address is passed on) */                       /* the Ethernet frame built from a received MSDU            */
 
 static ULONG g32(UCHAR FAR *p)
 {
@@ -404,8 +405,8 @@ static void rx_msdu(USHORT b, USHORT mlen)
    UCHAR FAR *pl = d + RXD_PAYLOAD;
    ULONG  attn = g32(d + RXD_ATTENTION);
    USHORT hl, blen, n, i;
-   UCHAR  fc0, fc1, decap;
-   UCHAR FAR *da, FAR *sa, FAR *body;
+   UCHAR  fc0, fc1, decap, et0, et1;
+   UCHAR FAR *da, FAR *sa, FAR *body, FAR *dst;
 
    g_rx_attn_last = attn;
    rx_rate(d);
@@ -458,30 +459,51 @@ static void rx_msdu(USHORT b, USHORT mlen)
    sa = ((fc1 & 3) == 3) ? pl + 24 : ((fc1 & 2) ? pl + 16 : pl + 10);
    body = pl + hl;
    blen = (USHORT)(mlen - hl);
-   for (i = 0; i < 6; i++) {
-      g_eth[i] = da[i];
-      g_eth[6 + i] = sa[i];
-   }
    if (body[0] == 0xAA && body[1] == 0xAA && body[2] == 0x03 &&
        ((body[3] == 0 && body[4] == 0 && body[5] == 0 &&
          !((body[6] == 0x80 && body[7] == 0xF3) || (body[6] == 0x81 && body[7] == 0x37))) ||
         (body[3] == 0 && body[4] == 0 && body[5] == 0xF8))) {
-      g_eth[12] = body[6];                                /* RFC 1042 / bridge tunnel: the SNAP type is the      */
-      g_eth[13] = body[7];                                /* Ethernet type                                       */
+      et0 = body[6];                                      /* RFC 1042 / bridge tunnel: the SNAP type is the      */
+      et1 = body[7];                                      /* Ethernet type                                       */
       body += 8;
       blen = (USHORT)(blen - 8);
    } else {
-      g_eth[12] = (UCHAR)(blen >> 8);                     /* IEEE 802.3: length field, LLC header kept           */
-      g_eth[13] = (UCHAR)blen;
+      et0 = (UCHAR)(blen >> 8);                           /* IEEE 802.3: length field, LLC header kept           */
+      et1 = (UCHAR)blen;
    }
    n = (USHORT)(14 + blen);
    if (n > 1514) { g_htt_rxdrop++; g_rx_why[6]++; return; }
-   rt_movmem((PVOID)(g_eth + 14), body, blen);
-   if (g_dedup && rx_is_dup((UCHAR FAR *)g_eth, n)) { g_rx_dedup++; return; }
+   if (et0 == 0x88 && et1 == 0x8E) {                      /* EAPOL: through the scratch frame to the supplicant  */
+      for (i = 0; i < 6; i++) {
+         g_eth[i] = da[i];
+         g_eth[6 + i] = sa[i];
+      }
+      g_eth[12] = et0;
+      g_eth[13] = et1;
+      rt_movmem((PVOID)(g_eth + 14), body, blen);
+      g_htt_rxfrm++;
+      stat_rx();
+      sta_rx_eth((UCHAR FAR *)g_eth, n);
+      return;
+   }
+   dst = sta_rx_begin(&g_rx_h);                           /* build the frame straight in the NDIS receive buffer */
+   if (!dst) {
+      g_htt_rxfrm++;
+      stat_rx();
+      return;
+   }
+   for (i = 0; i < 6; i++) {
+      dst[i] = da[i];
+      dst[6 + i] = sa[i];
+   }
+   dst[12] = et0;
+   dst[13] = et1;
+   rt_movmem(dst + 14, body, blen);
+   if (g_dedup && rx_is_dup(dst, n)) { g_rx_dedup++; sta_rx_abort(g_rx_h); return; }
    g_htt_rxfrm++;
    stat_rx();
-   rx_trace(pl, (UCHAR FAR *)g_eth, n);
-   sta_rx_eth((UCHAR FAR *)g_eth, n);
+   rx_trace(pl, dst, n);
+   sta_rx_commit(g_rx_h, n);
 }
 
 /* RX_IN_ORD_PADDR_IND: u8 type; u8 info; le16 peer_id; u8 vdev_id; u8 reserved; le16 msdu_count; then per MSDU
