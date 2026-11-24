@@ -287,6 +287,38 @@ static void stat_tx(void)
    g_c_tx++;
 }
 
+/* Receive rate statistics from rx_ppdu_start (descriptor offset 84): preamble in info1 (+104) bits 31:24 (4 legacy,
+ * 8/9 HT, 12/13 VHT), HT-SIG/VHT-SIG-A in info2 (+108) and info3 (+112). */
+#define RXD_PPDU_START      84
+USHORT g_rr_pre[3], g_rr_vmcs[10], g_rr_hmcs[16], g_rr_bw[4], g_rr_nss[3], g_rr_sgi, g_rr_n;
+UCHAR  g_rr_rssi;
+
+static void rx_rate(UCHAR FAR *d)
+{
+   UCHAR  pre = d[RXD_PPDU_START + 23];
+   ULONG  s1 = g32(d + RXD_PPDU_START + 24), s2 = g32(d + RXD_PPDU_START + 28);
+
+   g_rr_n++;
+   g_rr_rssi = d[RXD_PPDU_START + 16];                  /* rssi_comb                                          */
+   if (pre == 4) { g_rr_pre[0]++; return; }
+   if (pre == 8 || pre == 9) {
+      USHORT m = (USHORT)(s1 & 0x7F);
+
+      g_rr_pre[1]++;
+      if (m < 16) g_rr_hmcs[m]++;
+      g_rr_bw[(s1 >> 7) & 1]++;
+      if (s2 & 0x80UL) g_rr_sgi++;
+   } else if (pre == 12 || pre == 13) {
+      USHORT m = (USHORT)((s2 >> 4) & 0xF), nss = (USHORT)(((s1 >> 10) & 7) + 1);
+
+      g_rr_pre[2]++;
+      if (m < 10) g_rr_vmcs[m]++;
+      g_rr_bw[s1 & 3]++;
+      if (nss <= 2) g_rr_nss[nss]++;
+      if (s2 & 1UL) g_rr_sgi++;
+   }
+}
+
 static void rx_msdu(USHORT b, USHORT mlen)
 {
    UCHAR FAR *d = DPTR(g_rb[b]);
@@ -297,6 +329,7 @@ static void rx_msdu(USHORT b, USHORT mlen)
    UCHAR FAR *da, FAR *sa, FAR *body;
 
    g_rx_attn_last = attn;
+   rx_rate(d);
    if (!(attn & ATT_MSDU_DONE)) {
       g_htt_rxdrop++; g_rx_why[1]++;
       return;
