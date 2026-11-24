@@ -184,3 +184,20 @@ the peer is associated with the AP's HT caps/MCS set (flags HT|QOS), and data fr
 Status text: `HT=on QOS=01 APMCS=FFFF NSS=02`. No A-MPDU receive agreement (ADDBA is not answered) and no 40/80 MHz
 or VHT yet; expect roughly 3-6x the legacy-rate speed. If the join fails or traffic stops, report the status text:
 the quick way back is a build before this commit.
+
+## 14. 40 / 80 MHz channels
+
+The scan table now keeps, per beacon, the AP's HT capabilities (40 MHz bit), HT operation (secondary channel offset,
+STA channel width) and VHT operation (channel width, centre segment index). At join:
+
+* 5 GHz, AP on a 40 MHz channel: HT40 (vdev mode 6, `HT40_PLUS` when the secondary channel is above, centre = primary +/- 10 MHz).
+* 5 GHz, AP on 80 MHz (VHT operation width >= 1, centre index inside 5170-5835): VHT80 (mode 10, `band_center_freq1` =
+  5000 + 5 x index). The association request then carries a VHT capabilities element (MCS 0-9, 1 or 2 streams from `RFCHAINS`,
+  no 160 MHz); the peer is associated with the AP's VHT caps and MCS map (flags VHT|80MHZ, phymode 10).
+* 2.4 GHz: HT40 only when the AP's HT capabilities and operation say so.
+
+Status text: `WIDTH=80 MAX=2 SCO=1 CC0=..` (hex centre index), then `HT=on ...`.
+
+If the join fails or traffic stops with the wider channel, set `MAXWIDTH = 20` (or `40`) under `[QCA6174_NIF]` in
+PROTOCOL.INI, reboot, and send the status text of both runs. A VHT station must receive 80 MHz frames, so 80 MHz is
+never advertised without the vdev actually running on the 80 MHz channel.

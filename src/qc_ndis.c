@@ -517,6 +517,15 @@ static void pi_line(char *l)
       USHORT n = 0;
       char   c;
 
+      if (eqn(k, (USHORT)(e - k), "maxwidth")) {      /* MAXWIDTH = 20 | 40 | 80: widest channel to use       */
+         USHORT w = 0;
+
+         for (v = p + 1; *v; v++)
+            if (*v >= '0' && *v <= '9')
+               w = (USHORT)(w * 10 + (*v - '0'));
+         g_maxw = (UCHAR)(w >= 80 ? 2 : (w >= 40 ? 1 : 0));
+         return;
+      }
       if (!eqn(k, (USHORT)(e - k), "netaddress"))
          return;
       for (v = p + 1; *v && n < 12; v++) {

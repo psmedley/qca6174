@@ -22,15 +22,16 @@ USHORT g_jfail;
 UCHAR  g_jreq[160], g_jres[128];
 USHORT g_jreqlen, g_jreslen, g_jcaps, g_jaid;
 USHORT g_auth_rx, g_auth_status, g_assoc_rx, g_assoc_status, g_assoc_aid, g_assoc_caps, g_assoc_reslen;
-UCHAR  g_assoc_res[128];
+UCHAR  g_assoc_res[192];
 
 static UCHAR  g_want_ssid[33];
 static UCHAR  g_want_len;
 static USHORT g_want_open;
 static UCHAR  g_target[6];
 static USHORT g_joining, g_vdev_started, g_peer_made, g_seq, g_pm_miss;
-static UCHAR  g_frame[260];
-UCHAR  g_use_ht, g_qos;                                /* HT20 negotiated with this AP; QoS data frames          */
+static UCHAR  g_frame[280];
+UCHAR  g_use_ht, g_use_vht, g_qos;                                /* HT20 negotiated with this AP; QoS data frames          */
+UCHAR  g_cw, g_sco, g_cc0, g_maxw = 2;                  /* width in use (0 20, 1 40, 2 80 MHz), secondary offset, 80 MHz centre channel index, limit (PROTOCOL.INI MAXWIDTH) */
 UCHAR  g_ht_mcs[2], g_ht_nss;                          /* status: AP rx MCS bytes 0/1, streams used             */
 
 /* The element with this id in a block of information elements, or NULL. */
@@ -124,6 +125,18 @@ void sta_beacon(UCHAR FAR *f, USHORT len, USHORT chan, short rssi)
    n->ch = (UCHAR)chan;
    n->rssi = (signed char)(rssi < -127 ? -127 : (rssi > 0 ? 0 : rssi));
    n->sec = (UCHAR)((body[10] & 0x10) ? 1 : 0);
+   n->htc = n->ht40 = n->sco = n->htw = n->vht = n->vwid = n->cc0 = n->cc1 = 0;
+   for (pos = 12; pos + 2 <= blen; pos = (USHORT)(pos + 2 + body[pos + 1])) {          /* channel width elements       */
+      UCHAR FAR *d = body + pos + 2;
+      UCHAR l = body[pos + 1];
+
+      if ((USHORT)(pos + 2 + l) > blen)
+         break;
+      if (body[pos] == 45 && l >= 26) { n->htc = 1; n->ht40 = (UCHAR)((d[0] >> 1) & 1); }
+      else if (body[pos] == 61 && l >= 22) { n->sco = (UCHAR)(d[1] & 3); n->htw = (UCHAR)((d[1] >> 2) & 1); }
+      else if (body[pos] == 191 && l >= 12) n->vht = 1;
+      else if (body[pos] == 192 && l >= 3) { n->vwid = d[0]; n->cc0 = d[1]; n->cc1 = d[2]; }
+   }
    n->len = 0;
    for (pos = 12; pos + 2 <= blen; pos = (USHORT)(pos + 2 + body[pos + 1])) {
       if ((USHORT)(pos + 2 + body[pos + 1]) > blen)
@@ -249,6 +262,18 @@ static int tx_assoc(net_t *n)
          g_frame[k++] = g_htcap[i];
       if (g_num_rf < 2)
          g_frame[k - 28 + 6] = 0;                      /* 1x1 radio (QCA9377): no MCS 8-15 (rx mask byte 1)   */
+      if (g_cw)
+         g_frame[k - 28 + 2] |= 0x42;                  /* supports 40 MHz, short GI 40                        */
+      if (g_cw == 2) {                                 /* VHT capabilities: 80 MHz, short GI 80, A-MPDU exponent 3 */
+         USHORT mp = (USHORT)(g_num_rf >= 2 ? 0xFFF0U : 0xFFFCU);
+
+         g_frame[k++] = 191; g_frame[k++] = 12;
+         g_frame[k++] = 0x20; g_frame[k++] = 0; g_frame[k++] = 0x80; g_frame[k++] = 0x01;
+         g_frame[k++] = (UCHAR)mp; g_frame[k++] = (UCHAR)(mp >> 8);       /* rx MCS map: MCS 0-9 per stream  */
+         g_frame[k++] = 0; g_frame[k++] = 0;
+         g_frame[k++] = (UCHAR)mp; g_frame[k++] = (UCHAR)(mp >> 8);       /* tx MCS map                      */
+         g_frame[k++] = 0; g_frame[k++] = 0;
+      }
    }
    return wmi_mgmt_tx((UCHAR FAR *)g_frame, k);
 }
@@ -323,7 +348,7 @@ int sta_join(UCHAR FAR *want_bssid, USHORT any)
    USHORT k, best = 0xFFFF, i, att, bcn, dtim, nr, pos;
    int    bestr = -1000, rv;
    net_t *n;
-   UCHAR FAR *htp;
+   UCHAR FAR *htp, FAR *vhp;
 
    g_jfail = 0;
    if (!g_hw_ready) { g_jfail = 8; return -1; }
@@ -367,6 +392,22 @@ int sta_join(UCHAR FAR *want_bssid, USHORT any)
 
       g_use_ht = (UCHAR)(h && h[1] >= 26);            /* the AP's beacon carries an HT capabilities element */
    }
+   g_cw = 0;
+   g_sco = n->sco;
+   g_cc0 = 0;
+   if (g_use_ht && g_maxw >= 1 && n->htw && (n->sco == 1 || n->sco == 3) && (n->ch > 14 || n->ht40)) {
+      g_cw = 1;                                        /* the AP runs a 40 MHz channel: so do we              */
+      if (n->ch > 14 && g_maxw >= 2 && n->vht && n->vwid >= 1 && n->cc0 >= 36 && n->cc0 <= 165) {
+         USHORT pm = (USHORT)(5000 + 5 * n->ch), cm = (USHORT)(5000 + 5 * n->cc0);
+         USHORT dd = (pm > cm) ? (USHORT)(pm - cm) : (USHORT)(cm - pm);
+
+         if (dd == 10 || dd == 30) {                   /* the primary channel is inside the 80 MHz block      */
+            g_cw = 2;
+            g_cc0 = n->cc0;
+         }
+      }
+   }
+   g_use_vht = (UCHAR)(g_cw == 2);
    if (wmi_vdev_start(n->ch, bcn, dtim)) { g_jfail = 9; abort_join(); return -1; }
    g_vdev_started = 1;
    if (ath_wait(&g_vdev_start_done, 2000) || g_vdev_start_status != 0) {
@@ -411,11 +452,16 @@ int sta_join(UCHAR FAR *want_bssid, USHORT any)
       g_qos = g_use_ht;
       if (h) { g_ht_mcs[0] = h[2 + 3]; g_ht_mcs[1] = h[2 + 4]; }
       htp = h;
+      vhp = (g_cw == 2) ? find_ie((UCHAR FAR *)g_assoc_res, g_assoc_reslen, 191) : 0;
+      if (vhp && vhp[1] < 12)
+         vhp = 0;
+      if (g_cw == 2 && !vhp)
+         tstr("[AP gave no VHT caps]");
    }
    if (wmi_peer_assoc((UCHAR FAR *)g_target, g_assoc_aid, g_assoc_caps, 10,
                       g_want_open ? 0UL : 0x4UL,          /* WMI_TLV_PEER_NEED_PTK_4_WAY for an RSN network     */
-                      (UCHAR FAR *)rates, nr, htp,
-                      (USHORT)(g_use_ht ? (n->ch > 14 ? 4 : 5) : (n->ch > 14 ? 0 : 1))) ||
+                      (UCHAR FAR *)rates, nr, htp, vhp,
+                      (USHORT)(g_cw == 2 ? 10 : (g_cw == 1 ? (n->ch > 14 ? 6 : 7) : (g_use_ht ? (n->ch > 14 ? 4 : 5) : (n->ch > 14 ? 0 : 1))))) ||
        wmi_vdev_up(g_assoc_aid, (UCHAR FAR *)g_target)) {
       g_jfail = 10;
       abort_join();
@@ -455,6 +501,7 @@ void sta_leave(void)
    }
    g_joined = g_authorized = g_ptk_on = 0;
    g_use_ht = g_qos = 0;
+   g_cw = 0;
    abort_join();                                          /* peer delete, vdev stop                            */
    g_link_lost = 0;
 }

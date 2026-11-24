@@ -645,13 +645,27 @@ int wmi_scan(void)
 
 static int put_channel(UCHAR FAR *w, UCHAR c)
 {
-   USHORT mhz = ch_mhz(c);
-   ULONG  fl = (c <= 14) ? (g_use_ht ? (5UL | 0x800UL) : (ULONG)MODE_11G) : (g_use_ht ? (4UL | 0x800UL) : (ULONG)MODE_11A);
+   USHORT mhz = ch_mhz(c), c1 = mhz;
+   ULONG  fl = (c <= 14) ? MODE_11G : MODE_11A;
 
+   if (g_use_ht) {
+      fl = (c <= 14) ? 5UL : 4UL;                      /* HT20                                                */
+      fl |= 0x800UL;                                   /* WMI_CHAN_FLAG_ALLOW_HT                              */
+      if (g_cw >= 1) {                                 /* 40 MHz: the centre is 10 MHz beside the primary     */
+         fl = (c <= 14) ? 7UL : 6UL;
+         fl |= 0x800UL;
+         if (g_sco == 1) { fl |= 0x40UL; c1 = (USHORT)(mhz + 10); }      /* HT40_PLUS: secondary above    */
+         else            { c1 = (USHORT)(mhz - 10); }
+      }
+      if (g_cw == 2) {                                 /* 80 MHz VHT: centre of the 80 MHz block              */
+         fl = 10UL | 0x800UL | 0x1000UL;               /* MODE_11AC_VHT80, ALLOW_HT, ALLOW_VHT                */
+         c1 = (USHORT)(5000 + 5 * (USHORT)g_cc0);
+      }
+   }
    p32(w + 0, (ULONG)mhz);
-   p32(w + 4, (ULONG)mhz);
+   p32(w + 4, (ULONG)c1);                             /* band_center_freq1                                   */
    p32(w + 8, 0UL);
-   p32(w + 12, fl);                                   /* 20 MHz mode (HT20 or legacy)                      */
+   p32(w + 12, fl);                                   /* mode (low bits) and flags                           */
    w[16] = 0;  w[17] = 40;  w[18] = 40;  w[19] = 0;
    w[20] = 0;  w[21] = 40;
    return 0;
@@ -762,12 +776,13 @@ int wmi_peer_authorize(UCHAR FAR *addr)
 /* rates: 802.11 supported-rate octets (500 kbit/s units, bit 7 = basic); nrates <= 12.
  * htcap: the AP's HT capabilities element (id, len, 26 bytes), or NULL for a legacy-only association. */
 int wmi_peer_assoc(UCHAR FAR *addr, USHORT aid, USHORT caps, USHORT listen, ULONG flags,
-                   UCHAR FAR *rates, USHORT nrates, UCHAR FAR *htcap, USHORT phymode)
+                   UCHAR FAR *rates, USHORT nrates, UCHAR FAR *htcap, UCHAR FAR *vhtcap, USHORT phymode)
 {
    UCHAR FAR *p = wmi_begin(), FAR *c, FAR *q;
    USHORT i, rl, nht = 0, hl, hcap = 0, dens, nss = 1;
-   ULONG  rc = 0, mpdu = 0;
+   ULONG  rc = 0, mpdu = 0, vcap = 0;
    UCHAR  hr[16];
+   USHORT vrx = 0xFFFF, vtx = 0xFFFF, vrxhi = 0, vtxhi = 0, ours;
 
    if (!p)
       return -1;
@@ -794,6 +809,34 @@ int wmi_peer_assoc(UCHAR FAR *addr, USHORT aid, USHORT caps, USHORT listen, ULON
       mpdu = (1UL << (13 + (htcap[4] & 3))) - 1UL;
       i = (USHORT)((htcap[4] >> 2) & 7);
       dens = (USHORT)(i == 0 ? 0 : (i <= 3 ? 1 : (i == 4 ? 2 : (i == 5 ? 4 : (i == 6 ? 8 : 16)))));
+      if (g_cw >= 1) {
+         flags |= 0x2000UL;                            /* WMI_TLV_PEER_40MHZ                                  */
+         rc |= 0x02UL;                                 /* WMI_RC_CW40_FLAG                                    */
+         if (hcap & 0x40) rc |= 0x04UL;                /* short GI 40                                         */
+      }
+      ours = (USHORT)(g_num_rf >= 2 ? 2 : 1);
+      if (vhtcap && g_cw == 2) {                       /* the AP's VHT capabilities and MCS map               */
+         USHORT s, mx = 0;
+         ULONG  vm;
+
+         vcap = g32(vhtcap + 2);
+         vrx = (USHORT)(vhtcap[6] | (vhtcap[7] << 8));
+         vrxhi = (USHORT)(vhtcap[8] | (vhtcap[9] << 8));
+         vtx = (USHORT)(vhtcap[10] | (vhtcap[11] << 8));
+         vtxhi = (USHORT)(vhtcap[12] | (vhtcap[13] << 8));
+         for (s = 0; s < 8; s++)
+            if (((vrx >> (2 * s)) & 3) != 3)
+               mx = (USHORT)(s + 1);                   /* streams the AP can receive                          */
+         if (mx < nss) nss = mx ? mx : 1;
+         for (s = ours; s < 8; s++) {                  /* our radio has fewer streams: mark the others unsupported */
+            vrx |= (USHORT)(3 << (2 * s));
+            vtx |= (USHORT)(3 << (2 * s));
+         }
+         flags |= 0x02000000UL | 0x04000000UL;         /* WMI_TLV_PEER_VHT | WMI_TLV_PEER_80MHZ               */
+         if (vcap & 0x20) rc |= 0x04UL;                /* short GI 80                                         */
+         vm = (1UL << (13 + ((vcap >> 23) & 7))) - 1UL;
+         if (vm > mpdu) mpdu = vm;
+      }
       g_ht_nss = (UCHAR)nss;
    } else {
       dens = 0;
@@ -813,7 +856,7 @@ int wmi_peer_assoc(UCHAR FAR *addr, USHORT aid, USHORT caps, USHORT listen, ULON
    p32(c + 40, (ULONG)dens);                          /* mpdu_density                                       */
    p32(c + 44, rc);                                   /* rate_caps                                          */
    p32(c + 48, (ULONG)nss);                           /* nss                                                */
-   /* vht_caps zero */
+   p32(c + 52, vcap);                                 /* vht_caps (the peer's)                              */
    p32(c + 56, (ULONG)phymode);
    p32(c + 68, (ULONG)nrates);                        /* num_legacy_rates                                   */
    p32(c + 72, (ULONG)nht);                           /* num_ht_rates                                       */
@@ -826,7 +869,13 @@ int wmi_peer_assoc(UCHAR FAR *addr, USHORT aid, USHORT caps, USHORT listen, ULON
    q = tlv(q + rl, TAG_ARRAY_BYTE, hl);               /* HT rates: MCS indexes                              */
    for (i = 0; i < nht; i++)
       q[i] = hr[i];
-   q = tlv(q + hl, TAG_VHT_RATE_SET, 16);             /* VHT rate set: zeros                                */
+   q = tlv(q + hl, TAG_VHT_RATE_SET, 16);             /* VHT rate set (wmi_vht_rate_set)                    */
+   if (vcap) {
+      p32(q + 0, (ULONG)vrxhi);                       /* rx_max_rate                                        */
+      p32(q + 4, (ULONG)vrx);                         /* rx_mcs_set                                         */
+      p32(q + 8, (ULONG)vtxhi);                       /* tx_max_rate                                        */
+      p32(q + 12, (ULONG)vtx);                        /* tx_mcs_set                                         */
+   }
    q += 16;
    return wmi_send(WMI_TLV_PEER_ASSOC_CMDID, (USHORT)(q - p));
 }

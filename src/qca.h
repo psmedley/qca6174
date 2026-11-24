@@ -265,8 +265,9 @@ int    wmi_vdev_down(void);
 int    wmi_peer_create(UCHAR FAR *addr);
 int    wmi_peer_delete(UCHAR FAR *addr);
 int    wmi_peer_assoc(UCHAR FAR *addr, USHORT aid, USHORT caps, USHORT listen, ULONG flags,
-                      UCHAR FAR *rates, USHORT nrates, UCHAR FAR *htcap, USHORT phymode);
+                      UCHAR FAR *rates, USHORT nrates, UCHAR FAR *htcap, UCHAR FAR *vhtcap, USHORT phymode);
 extern UCHAR g_use_ht, g_qos, g_ht_mcs[2], g_ht_nss;
+extern UCHAR g_cw, g_sco, g_cc0, g_maxw;                  /* channel width in use (0 20, 1 40, 2 80 MHz), secondary offset, 80 MHz centre index, limit */
 int    wmi_peer_authorize(UCHAR FAR *addr);
 int    wmi_install_key(UCHAR FAR *addr, UCHAR idx, USHORT group, UCHAR FAR *key, USHORT klen);
 int    wmi_mgmt_tx(UCHAR FAR *frame, USHORT len);
@@ -275,7 +276,7 @@ extern USHORT g_vdev_start_done, g_vdev_start_status, g_vdev_stopped, g_peer_map
 extern UCHAR  g_peer_map_addr[6];
 extern USHORT g_auth_rx, g_auth_status, g_assoc_rx, g_assoc_status, g_assoc_aid, g_link_lost;
 extern USHORT g_assoc_caps, g_assoc_reslen;
-extern UCHAR  g_assoc_res[128];
+extern UCHAR  g_assoc_res[192];
 
 /* ---- HTT (ath_htt.c) ----------------------------------------------------------------------------- */
 extern USHORT g_htt_ready;
@@ -296,6 +297,8 @@ typedef struct {
    UCHAR  ch;
    signed char rssi;
    UCHAR  sec;                                /* privacy bit                                              */
+   UCHAR  htc, ht40, sco, htw;                /* HT caps present / 40 MHz capable (cap bit 1), HT operation: secondary channel offset (1 above, 3 below), STA channel width */
+   UCHAR  vht, vwid, cc0, cc1;                /* VHT caps present, VHT operation: channel width, centre segment indexes */
    USHORT ielen;                              /* bytes in ie[] (12 fixed beacon bytes + elements)          */
    UCHAR  ie[NET_IE_MAX];
    ULONG  seen;
