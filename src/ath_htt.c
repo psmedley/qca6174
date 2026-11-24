@@ -319,6 +319,28 @@ static void rx_rate(UCHAR FAR *d)
    }
 }
 
+/* Duplicate diagnostics (802.11 level): frames with the retry bit, frames repeating the last sequence number of their TID,
+ * frames whose sequence number went backwards. */
+USHORT g_rx_retry, g_rx_seqsame, g_rx_seqback, g_rx_retry_same, g_rx_ampdu_first;
+static USHORT g_last_seq[16] = { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
+                                 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF };
+
+static void rx_dupstat(UCHAR FAR *pl, USHORT hl_qos_off, UCHAR fc0, UCHAR fc1)
+{
+   USHORT seq = (USHORT)((pl[22] | (pl[23] << 8)) >> 4);
+   USHORT tid = (fc0 & 0x80) ? (USHORT)(pl[hl_qos_off] & 0x0F) : 0;
+   USHORT last = g_last_seq[tid], d;
+   UCHAR  retry = (UCHAR)((fc1 & 0x08) ? 1 : 0);
+
+   if (retry) g_rx_retry++;
+   if (last != 0xFFFF) {
+      d = (USHORT)((seq - last) & 0x0FFF);
+      if (d == 0) { g_rx_seqsame++; if (retry) g_rx_retry_same++; }
+      else if (d > 2048) g_rx_seqback++;
+   }
+   g_last_seq[tid] = seq;
+}
+
 static void rx_msdu(USHORT b, USHORT mlen)
 {
    UCHAR FAR *d = DPTR(g_rb[b]);
@@ -370,6 +392,7 @@ static void rx_msdu(USHORT b, USHORT mlen)
    }
    hl = 24;
    if ((fc1 & 3) == 3) hl = 30;
+   rx_dupstat(pl, hl, fc0, fc1);                          /* QoS control, if any, starts at offset hl           */
    if (fc0 & 0x80) hl += 2;                               /* QoS control                                        */
    if (!fw_feature(FW_FEAT_NO_NWIFI_4ADDR_PAD))
       hl = (USHORT)((hl + 3) & ~3);                       /* ath10k_htt_rx_nwifi_hdrlen                          */
