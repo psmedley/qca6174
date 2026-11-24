@@ -206,28 +206,17 @@ void ndis_rx_free(USHORT h)
       g_rxp_busy[h] = 0;
 }
 
-static void deliver(USHORT h, USHORT len)
+/* Indicate one frame; the caller holds g_ind_owner. Returns 1 when ReceiveChain was called (IndicationComplete is
+ * owed), 0 when the frame was dropped. */
+static int deliver_one(USHORT h, USHORT len)
 {
    WORD   rc;
    UCHAR FAR *d = DPTR(g_rxp[h]);
    struct RCBufferD *rcb = &g_rcb[h];
-   USHORT cid;
 
    if (!(gSST.status & SSTATUS_BOUND) || gSST.filter == 0) {
       g_rxp_busy[h] = 0;
-      return;
-   }
-   cid = (USHORT)(rt_cpu_id() + 1);
-   if (rt_lock_try(&g_ind_owner, cid)) {
-      g_ind_drop_busy++;
-      g_rxp_busy[h] = 0;
-      return;
-   }
-   if (g_ind_off != 0) {
-      rt_lock_release(&g_ind_owner);
-      g_ind_drop_off++;
-      g_rxp_busy[h] = 0;
-      return;
+      return 0;
    }
    gSST.recFrames++;
    gSST.recBytes += len;
@@ -248,30 +237,50 @@ static void deliver(USHORT h, USHORT len)
       rt_atomic_dec_nz(&g_ind_off);
    if (rc != NDIS_WAIT_FOR_RELEASE)
       g_rxp_busy[h] = 0;
-   (*gProtLDT.pIndicationComplete)(gCCT.moduleID, gProtCCT.moduleDS);
-   rt_lock_release(&g_ind_owner);
+   return 1;
 }
 
 /* Frames are delivered from the context hook (task time), never from the interrupt handler. */
 static UCHAR  g_q_h[RXP_N];
 static USHORT g_q_len[RXP_N];
 static USHORT g_q_head, g_q_tail;
+#define IND_BATCH 32                                  /* frames per IndicationComplete                         */
+USHORT g_ind_batches, g_ind_frames;
 
 void ndis_hook_deliver(void)
 {
-   USHORT depth = (USHORT)(g_q_head - g_q_tail);
+   USHORT depth = (USHORT)(g_q_head - g_q_tail), cid, n = 0, i;
 
    g_hook_n++;
    if (depth > g_q_hi)
       g_q_hi = depth;                             /* deepest backlog seen when the hook ran                */
-   while (g_q_tail != g_q_head) {
-      USHORT i = (USHORT)(g_q_tail % RXP_N);
-
-      if (g_ind_off != 0)
-         return;                                  /* IndicationOn re-arms the hook                         */
-      g_q_tail++;
-      deliver(g_q_h[i], g_q_len[i]);
+   if (depth == 0 || g_ind_off != 0)
+      return;                                     /* IndicationOn re-arms the hook                         */
+   cid = (USHORT)(rt_cpu_id() + 1);
+   if (rt_lock_try(&g_ind_owner, cid)) {
+      g_ind_drop_busy++;                          /* another CPU is indicating and drains the queue        */
+      return;
    }
+   while (g_q_tail != g_q_head) {
+      if (g_ind_off != 0)
+         break;                                   /* the protocol turned indications off                    */
+      i = (USHORT)(g_q_tail % RXP_N);
+      g_q_tail++;
+      n = (USHORT)(n + deliver_one(g_q_h[i], g_q_len[i]));
+      g_ind_frames++;
+      if (n >= IND_BATCH) {
+         (*gProtLDT.pIndicationComplete)(gCCT.moduleID, gProtCCT.moduleDS);
+         g_ind_batches++;
+         n = 0;
+      }
+   }
+   if (n) {
+      (*gProtLDT.pIndicationComplete)(gCCT.moduleID, gProtCCT.moduleDS);
+      g_ind_batches++;
+   }
+   rt_lock_release(&g_ind_owner);
+   if (g_q_tail != g_q_head && g_ind_off == 0)
+      hook_arm();                                 /* frames queued while we were finishing                  */
 }
 
 void ndis_rx_put(USHORT h, USHORT len)

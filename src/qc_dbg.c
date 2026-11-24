@@ -237,6 +237,7 @@ static void nl(void) { ps("\r\n"); }
 
 extern USHORT g_t2h_seen[16], g_t2h_other, g_rx_nbuf, g_txl_max, g_txl_n, g_txl_h[6], g_txst[4];
 extern ULONG g_txl_sum;
+extern USHORT g_ind_frames, g_ind_batches;
 extern USHORT g_tr_sc[64], g_tr_id[64], g_tr_ts[64], g_tr_len[64], g_tr_ttl[64], g_tr_n;
 extern USHORT g_rx_retry, g_rx_seqsame, g_rx_seqback, g_rx_retry_same;
 extern USHORT g_rr_pre[3], g_rr_vmcs[10], g_rr_hmcs[16], g_rr_bw[4], g_rr_nss[3], g_rr_sgi, g_rr_n;
@@ -314,7 +315,7 @@ static void build_status(void)
    ps(" rxbufs="); ph(ndis_state(6), 2); ps(" txbuf="); ph(ndis_state(7), 1); ps(" tx="); ph(ndis_state(2), 4);
    ps(" txhw="); ph(ndis_state(3), 4); ps(" rx="); ph(ndis_state(4), 4); ps(" nobuf="); ph(ndis_state(5), 4); nl();
    ps("NDISQ hi="); ph(ndis_state(9), 4); ps(" hooks="); ph(ndis_state(10), 4); ps(" dropbusy="); ph(ndis_state(11), 4);
-   ps(" dropoff="); ph(ndis_state(12), 4); nl();
+   ps(" dropoff="); ph(ndis_state(12), 4); ps(" frames="); ph(g_ind_frames, 4); ps(" batches="); ph(g_ind_batches, 4); nl();
    ps("RATE rxpps="); ph(g_pps_rx_max, 4); ps(" txpps="); ph(g_pps_tx_max, 4);
    ps(" irq2hook max="); ph(g_lat_max, 4); ps("ms n="); ph(g_lat_n, 4); ps(" sumlo="); ph((USHORT)g_lat_sum, 4); nl();
    ps("T2H="); for (i = 0; i < 16; i++) { ph(g_t2h_seen[i], 4); ps(i < 15 ? "," : ""); } ps(" other="); ph(g_t2h_other, 4); nl();
