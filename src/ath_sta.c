@@ -468,7 +468,8 @@ int sta_join(UCHAR FAR *want_bssid, USHORT any)
                       g_want_open ? 0UL : 0x4UL,          /* WMI_TLV_PEER_NEED_PTK_4_WAY for an RSN network     */
                       (UCHAR FAR *)rates, nr, htp, vhp,
                       (USHORT)(g_cw == 2 ? 10 : (g_cw == 1 ? (n->ch > 14 ? 6 : 7) : (g_use_ht ? (n->ch > 14 ? 4 : 5) : (n->ch > 14 ? 0 : 1))))) ||
-       wmi_vdev_up(g_assoc_aid, (UCHAR FAR *)g_target)) {
+       wmi_vdev_up(g_assoc_aid, (UCHAR FAR *)g_target) ||
+       wmi_sta_ps_off()) {
       g_jfail = 10;
       abort_join();
       return -1;

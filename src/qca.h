@@ -261,6 +261,7 @@ void   wmi_rx(UCHAR FAR *p, USHORT len);
 int    wmi_vdev_start(UCHAR ch, USHORT bcn_intval, USHORT dtim);
 int    wmi_vdev_stop(void);
 int    wmi_vdev_up(USHORT aid, UCHAR FAR *bssid);
+int    wmi_sta_ps_off(void);
 int    wmi_vdev_down(void);
 int    wmi_peer_create(UCHAR FAR *addr);
 int    wmi_peer_delete(UCHAR FAR *addr);

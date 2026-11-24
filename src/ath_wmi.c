@@ -733,6 +733,19 @@ int wmi_vdev_up(USHORT aid, UCHAR FAR *bssid)
    return wmi_send(WMI_TLV_VDEV_UP_CMDID, 20);
 }
 
+/* WMI_STA_POWERSAVE_MODE_CMDID: power save off for the station vdev (never doze between beacons). */
+int wmi_sta_ps_off(void)
+{
+   UCHAR FAR *p = wmi_begin(), FAR *c;
+
+   if (!p)
+      return -1;
+   c = tlv(p, 0x6C, 8);                               /* WMI_TLV_TAG_STRUCT_STA_POWERSAVE_MODE_CMD          */
+   p32(c + 0, 0UL);                                   /* vdev_id                                            */
+   p32(c + 4, 0UL);                                   /* WMI_STA_PS_MODE_DISABLED                           */
+   return wmi_send(0x09001UL, 12);                    /* WMI_TLV_STA_POWERSAVE_MODE_CMDID                   */
+}
+
 int wmi_peer_create(UCHAR FAR *addr)
 {
    UCHAR FAR *p = wmi_begin(), FAR *c;
