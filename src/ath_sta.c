@@ -31,6 +31,7 @@ static UCHAR  g_target[6];
 static USHORT g_joining, g_vdev_started, g_peer_made, g_seq, g_pm_miss;
 static UCHAR  g_frame[280];
 UCHAR  g_use_ht, g_use_vht, g_qos;                                /* HT20 negotiated with this AP; QoS data frames          */
+UCHAR  g_forcech;                                      /* PROTOCOL.INI CHANNEL: join only this primary channel (0 = any) */
 UCHAR  g_cw, g_sco, g_cc0, g_maxw = 2;                  /* width in use (0 20, 1 40, 2 80 MHz), secondary offset, 80 MHz centre channel index, limit (PROTOCOL.INI MAXWIDTH) */
 UCHAR  g_ht_mcs[2], g_ht_nss;                          /* status: AP rx MCS bytes 0/1, streams used             */
 
@@ -359,6 +360,8 @@ int sta_join(UCHAR FAR *want_bssid, USHORT any)
       if (!ssid_match(&g_net[k]))
          continue;
       if (!any && !mac_eq(g_net[k].bssid, want_bssid))
+         continue;
+      if (g_forcech && g_net[k].ch != g_forcech)
          continue;
       rv = g_net[k].rssi ? (int)g_net[k].rssi : -120;
       if (best == 0xFFFF || rv > bestr) {

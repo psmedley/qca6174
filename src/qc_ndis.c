@@ -526,6 +526,15 @@ static void pi_line(char *l)
          g_maxw = (UCHAR)(w >= 80 ? 2 : (w >= 40 ? 1 : 0));
          return;
       }
+      if (eqn(k, (USHORT)(e - k), "channel")) {       /* CHANNEL = n: join only an access point on that primary channel */
+         USHORT w = 0;
+
+         for (v = p + 1; *v; v++)
+            if (*v >= '0' && *v <= '9')
+               w = (USHORT)(w * 10 + (*v - '0'));
+         g_forcech = (UCHAR)(w < 255 ? w : 0);
+         return;
+      }
       if (!eqn(k, (USHORT)(e - k), "netaddress"))
          return;
       for (v = p + 1; *v && n < 12; v++) {

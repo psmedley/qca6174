@@ -267,6 +267,7 @@ int    wmi_peer_delete(UCHAR FAR *addr);
 int    wmi_peer_assoc(UCHAR FAR *addr, USHORT aid, USHORT caps, USHORT listen, ULONG flags,
                       UCHAR FAR *rates, USHORT nrates, UCHAR FAR *htcap, UCHAR FAR *vhtcap, USHORT phymode);
 extern UCHAR g_use_ht, g_qos, g_ht_mcs[2], g_ht_nss;
+extern UCHAR g_forcech;
 extern UCHAR g_cw, g_sco, g_cc0, g_maxw;                  /* channel width in use (0 20, 1 40, 2 80 MHz), secondary offset, 80 MHz centre index, limit */
 int    wmi_peer_authorize(UCHAR FAR *addr);
 int    wmi_install_key(UCHAR FAR *addr, UCHAR idx, USHORT group, UCHAR FAR *key, USHORT klen);

@@ -201,3 +201,8 @@ Status text: `WIDTH=80 MAX=2 SCO=1 CC0=..` (hex centre index), then `HT=on ...`.
 If the join fails or traffic stops with the wider channel, set `MAXWIDTH = 20` (or `40`) under `[QCA6174_NIF]` in
 PROTOCOL.INI, reboot, and send the status text of both runs. A VHT station must receive 80 MHz frames, so 80 MHz is
 never advertised without the vdev actually running on the 80 MHz channel.
+
+### Pinning the channel / width for comparisons
+
+`[QCA6174_NIF]` in PROTOCOL.INI: `CHANNEL = 136` joins only an access point whose primary channel is 136 (the status
+text shows `FORCECH=88`, hex); `MAXWIDTH = 20|40|80` limits the width. Use both to compare widths on the same AP.
