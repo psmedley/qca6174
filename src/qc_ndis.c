@@ -529,7 +529,7 @@ static void pi_line(char *l)
       if (eqn(k, (USHORT)(e - k), "dedup")) {          /* DEDUP = 1: drop IPv4 frames identical to a recent one */
          for (v = p + 1; *v == ' ' || *v == '\t'; v++)
             ;
-         g_dedup = (UCHAR)(*v == '1');
+         g_dedup = (UCHAR)(*v == '1' || lc(*v) == 'o' && lc(v[1]) == 'n' || lc(*v) == 'y' || lc(*v) == 't');   /* 1, ON, YES, TRUE */
          return;
       }
       if (eqn(k, (USHORT)(e - k), "channel")) {       /* CHANNEL = n: join only an access point on that primary channel */
