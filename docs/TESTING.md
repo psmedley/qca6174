@@ -214,3 +214,10 @@ different 802.11 sequence numbers (RXTRACE in the status text), so the AP or the
 `DEDUP = 1` under `[QCA6174_NIF]` makes the driver drop an IPv4 frame identical to one of the last 64 delivered (header +
 first 8 payload bytes; a real TCP retransmission has a new IP id and passes). The status text shows `DEDUP=1 dropped=...`.
 It is a workaround: the cause (AP or wired side) still needs finding, e.g. a capture on the server during a download.
+
+### Stale association on the AP (cause of the duplicates on one AP)
+
+A session that ended without a deauthentication (reboot, trap) left a client entry for our MAC on the EAP770, which kept
+transmitting copies of the downstream frames (same IP id, new 802.11 sequence number): 63% duplicate TCP data, ~1 MB/s.
+`echo leave > \DEV\WRND32$` before rebooting gave up to 4 MB/s. The driver now sends a deauthentication to the AP before
+every authentication, and waits 60/80 ms so the deauthentication on leave/shutdown really reaches the air.

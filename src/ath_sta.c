@@ -222,6 +222,17 @@ static int tx_auth(void)
    return wmi_mgmt_tx((UCHAR FAR *)g_frame, 30);
 }
 
+/* Let the firmware transmit what was queued: the interrupt/task servicing runs while we wait. */
+static void settle_ms(USHORT ms)
+{
+   ULONG t0 = qc_ms();
+
+   while ((long)(qc_ms() - t0) < (long)ms) {
+      ath_service();
+      qc_msleep(2);
+   }
+}
+
 static int tx_deauth(void)
 {
    mgmt_hdr(0xC0);
@@ -429,6 +440,9 @@ int sta_join(UCHAR FAR *want_bssid, USHORT any)
       tstr("[no peer map]");
    }
 
+   tx_deauth();                                           /* clear any stale association the AP kept for our MAC */
+   settle_ms(60);
+
    for (att = 1; att <= 3; att++) {                       /* open-system authentication                        */
       g_auth_rx = 0;
       if (tx_auth()) { g_jfail = 10; abort_join(); return -1; }
@@ -504,6 +518,7 @@ void sta_leave(void)
       return;
    if (g_joined) {
       tx_deauth();
+      settle_ms(80);                                      /* the deauthentication must be on the air before the vdev goes down */
       wmi_vdev_down();
    }
    g_joined = g_authorized = g_ptk_on = 0;
