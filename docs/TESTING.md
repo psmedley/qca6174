@@ -245,3 +245,12 @@ How to test: download from the server's LAN IP on the usual channel (`CHANNEL = 
 speed and the status text. Expect: speed above the previous ~8.5 MB/s, `frames/batches` well above 1, `HOOKMS` lower per MB.
 If anything breaks (no traffic, traps, corrupt downloads), say which commit you tested; `git checkout e0046f1~1` etc. gives
 the build before each step.
+
+## 17. Saved MAC address (no QCMAC.CMD, no NETADDRESS)
+
+The chip's address is only known after the firmware boots, after the stack has bound. STARTUP.CMD now saves the status text
+(only when it says READY) to `C:\IBMCOM\MACS\QCA6174\LASTMAC.TXT`; at the next boot the driver reads `FWMAC=` from it during
+start-up and uses it as the NDIS station address (status text: `MAC=... (saved LASTMAC.TXT)`). Order of precedence:
+`NETADDRESS` in PROTOCOL.INI, then the saved file, then the firmware's address (too late for the stack, so no IP until the
+next boot). First boot after installing: reboot once. If a different card is fitted, the status line says the saved address
+differs from FWMAC; the next boot uses the new one (STARTUP.CMD rewrites the file).

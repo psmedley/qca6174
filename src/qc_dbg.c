@@ -279,9 +279,12 @@ static void build_status(void)
    ps(" CHIP="); ph(g_chip_id, 8); ps(" TARGET="); ph(g_target_ver, 8); ps(" RD="); ph(g_eeprom_rd, 4); nl();
    ps("MAC=");
    for (i = 0; i < 6; i++) { ph(g_mymac[i], 2); if (i < 5) ps(":"); }
-   ps(g_cfgmac ? " (PROTOCOL.INI NETADDRESS)" : " (firmware; set NETADDRESS in PROTOCOL.INI)"); nl();
+   ps(g_cfgmac == 1 ? " (PROTOCOL.INI NETADDRESS)" : (g_cfgmac == 2 ? " (saved LASTMAC.TXT)" : " (firmware; save the status text in LASTMAC.TXT or set NETADDRESS)")); nl();
    ps("FWMAC=");
    for (i = 0; i < 6; i++) { ph(g_wmi_mac[i], 2); if (i < 5) ps(":"); }
+   if (g_cfgmac && g_hw_ready && (g_mymac[0] != g_wmi_mac[0] || g_mymac[1] != g_wmi_mac[1] || g_mymac[2] != g_wmi_mac[2] ||
+                                  g_mymac[3] != g_wmi_mac[3] || g_mymac[4] != g_wmi_mac[4] || g_mymac[5] != g_wmi_mac[5]))
+      ps(" <- differs from the chip's address (FWMAC); the saved one is in use");
    nl();
    ps("NETS="); ph(g_nnet, 4); ps(" IRQS="); ph(g_irq_count, 8); ps(" SPUR="); ph(g_irq_spurious, 4);
    ps(" HOOK="); ph(g_hook_runs, 8); ps(" SVC="); ph(g_svc_runs, 8); ps(" WMIEV="); ph(g_wmi_events, 4);

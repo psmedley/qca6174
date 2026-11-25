@@ -595,9 +595,36 @@ static void pi_line(char *l)
    }
 }
 
-void ndis_find_lan(void)
+/* The last status text the driver produced (STARTUP.CMD saves it): FWMAC=xx:xx:xx:xx:xx:xx is the chip's own address. */
+static void mc_line(char *l)
 {
-   static char path[] = "\\IBMCOM\\PROTOCOL.INI";
+   static UCHAR m[6];
+   USHORT n = 0;
+   char   c, *v;
+
+   while (*l == ' ' || *l == '\t') l++;
+   if (!(eqn(l, 6, "fwmac=")))
+      return;
+   for (v = l + 6; *v && n < 12; v++) {
+      c = *v;
+      if (c >= '0' && c <= '9') c = (char)(c - '0');
+      else if (c >= 'a' && c <= 'f') c = (char)(c - 'a' + 10);
+      else if (c >= 'A' && c <= 'F') c = (char)(c - 'A' + 10);
+      else continue;
+      if (n & 1) m[n >> 1] = (UCHAR)((m[n >> 1] << 4) | c);
+      else       m[n >> 1] = (UCHAR)c;
+      n++;
+   }
+   if (n != 12 || (!m[0] && !m[1] && !m[2] && !m[3] && !m[4] && !m[5]))
+      return;
+   for (n = 0; n < 6; n++) g_mymac[n] = m[n];
+   ndis_set_mac(g_mymac);
+   g_cfgmac = 2;                                          /* 2: from the saved status text                         */
+}
+
+/* Read a text file line by line and hand each line to fn (INIT time, small files). */
+static void scan_file(char *path, void (*fn)(char *))
+{
    static USHORT h, action, got;
    USHORT i;
    char   c;
@@ -607,14 +634,12 @@ void ndis_find_lan(void)
                OPEN_FLAGS_NOINHERIT | OPEN_SHARE_DENYNONE | OPEN_ACCESS_READONLY, 0L) != 0)
       return;
    g_pln = 0;
-   g_in_tcpip = 0;
-   g_in_nif = 0;
    while (DosRead(h, (PVOID)g_pbuf, sizeof(g_pbuf), &got) == 0 && got) {
       for (i = 0; i < got; i++) {
          c = g_pbuf[i];
          if (c == '\n') {
             g_pl[g_pln] = 0;
-            pi_line(g_pl);
+            (*fn)(g_pl);
             g_pln = 0;
          } else if (c != '\r' && c != 0x1A && g_pln < PL_MAX)
             g_pl[g_pln++] = c;
@@ -622,9 +647,21 @@ void ndis_find_lan(void)
    }
    if (g_pln) {
       g_pl[g_pln] = 0;
-      pi_line(g_pl);
+      (*fn)(g_pl);
    }
    DosClose(h);
+}
+
+void ndis_find_lan(void)
+{
+   static char path[] = "\\IBMCOM\\PROTOCOL.INI";
+   static char cache[] = "\\IBMCOM\\MACS\\QCA6174\\LASTMAC.TXT";
+
+   g_in_tcpip = 0;
+   g_in_nif = 0;
+   scan_file(path, pi_line);
+   if (!g_cfgmac)
+      scan_file(cache, mc_line);                          /* no NETADDRESS: the address saved at the last boot     */
 }
 
 /* For the status text */
