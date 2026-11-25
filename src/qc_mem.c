@@ -147,6 +147,60 @@ int blob_write(BLOB *b, ULONG src, USHORT n)
    return 0;
 }
 
+/* INIT-time experiment (CONFIG.SYS /F1): can a DMA chunk be mapped and written at INIT? Beeps 21..24 with /B. */
+int mem_probe(void)
+{
+   UCHAR FAR *p;
+
+   if (!g_nchunk)
+      return -1;
+   qc_step(21);                                   /* about to map                                              */
+   if (rt_dh_phys_to_gdt(g_cphys[0], 0xFFFF, g_csel[0]))
+      return -2;
+   g_cmapped[0] = 1;
+   qc_step(22);                                   /* mapped                                                    */
+   p = (UCHAR FAR *)MAKEP(g_csel[0], 0);
+   p[0] = 0xA5;
+   p[0xFFFF] = 0x5A;
+   qc_step(23);                                   /* written                                                   */
+   if (p[0] != 0xA5 || p[0xFFFF] != 0x5A)
+      return -3;
+   qc_step(24);                                   /* read back                                                 */
+   return 0;
+}
+
+/* Like blob_write, but the source is a buffer in the driver's own data segment (INIT: DosRead into it). */
+int blob_write_ds(BLOB *b, UCHAR *src, USHORT n)
+{
+   U32    pos;
+   USHORT boff, k, ds;
+   ULONG  room;
+
+   while (n) {
+      pos.l = b->len;
+      boff = pos.w[0];
+      if (pos.w[1] >= BLOB_MAXBLK)
+         return -1;
+      if (pos.w[1] >= b->nblk) {
+         static ULONG ph;
+
+         if (rt_dh_alloc_phys(0x10000UL, 0, &ph))
+            return -2;
+         b->blk[b->nblk++] = ph;
+      }
+      room = 0x10000UL - boff;
+      k = (room < (ULONG)n) ? (USHORT)room : n;
+      ds = scr_map(SCR_A, b->blk[pos.w[1]] + boff, k);
+      if (!ds)
+         return -3;
+      rt_movmem(MAKEP(ds, 0), (PVOID)src, k);
+      b->len += k;
+      src += k;
+      n = (USHORT)(n - k);
+   }
+   return 0;
+}
+
 int blob_read(BLOB *b, ULONG off, UCHAR FAR *dst, USHORT n)
 {
    U32    pos;

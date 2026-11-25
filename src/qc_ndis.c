@@ -307,6 +307,7 @@ WORD __cdecl ndis_c_sysreq(DWORD param1, DWORD param2, WORD param3, WORD opcode)
       return NDIS_INVALID_PARAMETER;
    if (gSST.status & SSTATUS_BOUND)
       return NDIS_ALREADY_STARTED;
+   ath_late_irq();                              /* adapter started at boot (CONFIG.SYS /F3): hook the interrupt now */
    ndis_bufs();
    gProtCCT = *(PCCT)param1;
    gProtLDT = *gProtCCT.pLowDisp;
@@ -686,4 +687,27 @@ USHORT ndis_state(USHORT what)
    case 12: return g_ind_drop_off;
    }
    return 0;
+}
+
+/* INIT: read one whole file into a blob (DosRead into the data segment, then copied through a mapped selector). */
+static UCHAR g_ibuf[2048];
+
+int boot_read_file(char *path, BLOB *b)
+{
+   static USHORT h, action, got;
+
+   if (DosOpen((PSZ)path, &h, &action, 0L, 0,
+               OPEN_ACTION_OPEN_IF_EXISTS | OPEN_ACTION_FAIL_IF_NEW,
+               OPEN_FLAGS_NOINHERIT | OPEN_SHARE_DENYNONE | OPEN_ACCESS_READONLY, 0L) != 0)
+      return -1;
+   blob_reset(b);
+   while (DosRead(h, (PVOID)g_ibuf, sizeof(g_ibuf), &got) == 0 && got) {
+      if (blob_write_ds(b, g_ibuf, got)) {
+         DosClose(h);
+         return -2;
+      }
+   }
+   DosClose(h);
+   b->done = (USHORT)(b->len ? 1 : 0);
+   return b->done ? 0 : -3;
 }

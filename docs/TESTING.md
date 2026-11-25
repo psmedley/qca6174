@@ -254,3 +254,28 @@ start-up and uses it as the NDIS station address (status text: `MAC=... (saved L
 `NETADDRESS` in PROTOCOL.INI, then the saved file, then the firmware's address (too late for the stack, so no IP until the
 next boot). First boot after installing: reboot once. If a different card is fitted, the status line says the saved address
 differs from FWMAC; the next boot uses the new one (STARTUP.CMD rewrites the file).
+
+## 18. Loading the firmware at boot (CONFIG.SYS `/F1`, `/F2`, `/F3`) - experimental
+
+Goal: no firmware copy lines in STARTUP.CMD, and the MAC address known before the protocol stack binds (like Linux and
+Windows, where the driver loads its own firmware). Off by default; each level adds one step, so a hang shows where it is.
+Use together with `/B` (beeps) and keep a way to boot without the driver (the earlier hang had no on-screen error).
+
+```
+DEVICE=C:\IBMCOM\MACS\QCA6174.OS2 /B /F1
+```
+
+* `/F1`: map one DMA chunk at INIT, write to it and read back. Beeps: two long + 1 short = about to map; + 2 short = mapped;
+  + 3 short = written; + 4 short = read back OK. A hang after "mapped" or "written" means writing to DMA memory at INIT is
+  what hung the first version; then `/F2`/`/F3` can't work and I need another way to get memory writable at INIT.
+* `/F2`: also reads `\IBMCOM\MACS\QCA6174\firmware-6.bin` and `board-2.bin` (`QCA9377` folder for a 9377) into memory at INIT.
+  Beeps: two long + 5 short = reading the firmware file, + 6 short = firmware read, + 7 short = board file read.
+  Boot message: "firmware and board data loaded at boot". The status text then shows `FW=... loaded`, so STARTUP.CMD no longer
+  needs the two firmware `copy` lines (if it still has them the copy is ignored once the adapter runs).
+* `/F3`: also starts the adapter at INIT, polled (no interrupts yet); the interrupt is hooked at the first request after boot.
+  Progress beeps: three long + 1..6 short for ath_up steps 5/10/15/20/25/done. Boot message: "adapter started at boot". The
+  MAC address is then known before the stack binds, so no `NETADDRESS` and no LASTMAC.TXT is needed.
+  If it fails, the driver still loads; the status text shows `STATE=` (the failing step) and `FAILED`, and the normal way
+  (copy the firmware in STARTUP.CMD) still works.
+
+Please report which beeps you hear last for each of `/F1`, `/F2`, `/F3`, and the status text if it boots.

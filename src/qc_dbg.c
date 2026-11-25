@@ -128,6 +128,7 @@ static void run_cmd(void)
 
 void qc_dev_open(USHORT sfn)
 {
+   ath_late_irq();                               /* adapter started at boot (CONFIG.SYS /F3): hook the interrupt now */
    (void)sfn;
 }
 

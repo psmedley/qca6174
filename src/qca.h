@@ -45,7 +45,10 @@ void   qc_err(const char *what, ULONG v);    /* "QCA6174: <what> <v>" on COM1, r
 extern ULONG g_last_err;
 extern char *g_last_err_txt;
 
-void   qc_step(USHORT n);                  /* boot diagnostics: n beeps with /B (qc_strat.c)                 */
+void   qc_step(USHORT n);
+extern UCHAR g_initphase, g_boot_polled;         /* bring-up at INIT (CONFIG.SYS /F3): polled, no ProcBlock       */
+int    mem_probe(void);
+void   ath_late_irq(void);                  /* boot diagnostics: n beeps with /B (qc_strat.c)                 */
 
 /* ---- time (qc_strat.c) --------------------------------------------------------------------------- */
 ULONG  qc_ms(void);                     /* ms since boot (global info segment)                            */
@@ -108,6 +111,8 @@ typedef struct {
    ULONG  blk[BLOB_MAXBLK];
 } BLOB;
 extern BLOB g_fwblob, g_bdblob;
+int    blob_write_ds(BLOB *b, UCHAR *src, USHORT n);    /* append n bytes from the data segment (INIT)           */
+int    boot_read_file(char *path, BLOB *b);             /* INIT: read a whole file into a blob (qc_ndis.c)         */
 int    blob_write(BLOB *b, ULONG src_phys, USHORT n);   /* append n bytes from physical src; 0 = ok          */
 int    blob_read(BLOB *b, ULONG off, UCHAR FAR *dst, USHORT n);   /* 0 = ok                                */
 ULONG  blob_rd32(BLOB *b, ULONG off);
