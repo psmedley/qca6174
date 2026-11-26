@@ -695,19 +695,30 @@ static UCHAR g_ibuf[2048];
 int boot_read_file(char *path, BLOB *b)
 {
    static USHORT h, action, got;
+   USHORT rc;
+   int    wr;
 
-   if (DosOpen((PSZ)path, &h, &action, 0L, 0,
-               OPEN_ACTION_OPEN_IF_EXISTS | OPEN_ACTION_FAIL_IF_NEW,
-               OPEN_FLAGS_NOINHERIT | OPEN_SHARE_DENYNONE | OPEN_ACCESS_READONLY, 0L) != 0)
-      return -1;
+   rc = DosOpen((PSZ)path, &h, &action, 0L, 0,
+                OPEN_ACTION_OPEN_IF_EXISTS | OPEN_ACTION_FAIL_IF_NEW,
+                OPEN_FLAGS_NOINHERIT | OPEN_SHARE_DENYNONE | OPEN_ACCESS_READONLY, 0L);
+   if (rc != 0)
+      return (int)(1000 + rc);                            /* 1000 + the DosOpen return code (2 not found, 3 no path, 5 denied, ...) */
    blob_reset(b);
-   while (DosRead(h, (PVOID)g_ibuf, sizeof(g_ibuf), &got) == 0 && got) {
-      if (blob_write_ds(b, g_ibuf, got)) {
+   for (;;) {
+      rc = DosRead(h, (PVOID)g_ibuf, sizeof(g_ibuf), &got);
+      if (rc != 0) {
          DosClose(h);
-         return -2;
+         return (int)(2000 + rc);                         /* 2000 + the DosRead return code                                         */
+      }
+      if (!got)
+         break;
+      wr = blob_write_ds(b, g_ibuf, got);
+      if (wr) {
+         DosClose(h);
+         return 3000 - wr;                                /* 3001..3003: the blob could not be written (memory)                     */
       }
    }
    DosClose(h);
    b->done = (USHORT)(b->len ? 1 : 0);
-   return b->done ? 0 : -3;
+   return b->done ? 0 : 4000;                             /* 4000: empty file                                                       */
 }

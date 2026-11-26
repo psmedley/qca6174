@@ -238,6 +238,7 @@ static void nl(void) { ps("\r\n"); }
 
 extern USHORT g_t2h_seen[16], g_t2h_other, g_rx_nbuf, g_txl_max;
 extern ULONG  g_txl_n, g_txl_h[6], g_txst[4];
+extern USHORT g_boot_mode, g_boot_probe, g_boot_fw, g_boot_bd, g_boot_up;
 extern ULONG g_txl_sum;
 extern ULONG  g_ind_frames, g_ind_batches;
 extern USHORT g_tr_sc[64], g_tr_id[64], g_tr_ts[64], g_tr_len[64], g_tr_ttl[64], g_tr_n;
@@ -275,6 +276,10 @@ static void build_status(void)
    ps(" BOARD="); ph(g_bdblob.len, 8); ps(g_bdblob.done ? " loaded" : " missing"); nl();
    ps("FWVER="); pfs((char FAR *)g_fw.version, sizeof(g_fw.version)); ps(" BUILD="); ph(g_fw_build, 8); nl();
    ps("BOARDNAME="); ps(ath_board_name()); nl();
+   if (g_boot_mode) {                             /* CONFIG.SYS /F or /G: what happened at boot (0xFFFF = not reached; fw/bd: 1000+DosOpen rc, 2000+DosRead rc, 3000+memory, 4000 empty) */
+      ps("BOOTLOAD mode="); ph(g_boot_mode, 1); ps(" probe="); ph(g_boot_probe, 4); ps(" fw="); ph(g_boot_fw, 4);
+      ps(" bd="); ph(g_boot_bd, 4); ps(" up="); ph(g_boot_up, 4); nl();
+   }
    ps("RFCHAINS="); ph(g_num_rf, 2); nl();
    ps("STATE="); ph(g_hw_state, 4); ps(g_hw_ready ? " READY" : (g_hw_failed ? " FAILED" : " DOWN"));
    ps(" CHIP="); ph(g_chip_id, 8); ps(" TARGET="); ph(g_target_ver, 8); ps(" RD="); ph(g_eeprom_rd, 4); nl();

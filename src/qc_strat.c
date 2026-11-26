@@ -147,15 +147,40 @@ static void bsay(char *s)
    tcom_always(13); tcom_always(10);
 }
 
-/* Mode 1: only test that DMA memory can be mapped and written at INIT. Mode 2: also read the firmware and board
- * files. Mode 3: also bring the adapter up (polled) so that its MAC address is known before the protocol binds. */
+USHORT g_boot_mode, g_boot_probe = 0xFFFF, g_boot_fw = 0xFFFF, g_boot_bd = 0xFFFF, g_boot_up = 0xFFFF;   /* for the status text */
+
+/* Read a file: first as given, then with C: in front (the current drive may differ at this stage). */
+static int read_boot_file(char *path, BLOB *b)
+{
+   static char full[80];
+   int rc;
+   USHORT i;
+
+   rc = boot_read_file(path, b);
+   if (rc == 0)
+      return 0;
+   full[0] = 'C'; full[1] = ':';
+   for (i = 0; path[i] && i < sizeof(full) - 3; i++)
+      full[2 + i] = path[i];
+   full[2 + i] = 0;
+   if (boot_read_file(full, b) == 0)
+      return 0;
+   return rc;                                            /* the error of the first attempt                         */
+}
+
+/* Mode 1: only test that DMA memory can be mapped and written. Mode 2: also read the firmware and board files.
+ * Mode 3: also bring the adapter up (polled) so that its MAC address is known before the protocol binds. */
 static void boot_load(USHORT mode)
 {
    static char fw[] = "\\IBMCOM\\MACS\\QCA6174\\firmware-6.bin";
    static char bd[] = "\\IBMCOM\\MACS\\QCA6174\\board-2.bin";
    USHORT i;
+   int    rc;
 
-   if (mem_probe()) {
+   g_boot_mode = mode;
+   rc = mem_probe();
+   g_boot_probe = (USHORT)(rc < 0 ? -rc : 0);
+   if (rc) {
       bsay("QCA6174: /F: DMA memory could not be mapped at boot; the firmware must be copied to WRND32$.");
       return;
    }
@@ -167,12 +192,16 @@ static void boot_load(USHORT mode)
          bd[16 + i] = "9377"[i];
       }
    qc_step(25);
-   if (boot_read_file(fw, &g_fwblob)) {
+   rc = read_boot_file(fw, &g_fwblob);
+   g_boot_fw = (USHORT)rc;
+   if (rc) {
       bsay("QCA6174: /F: cannot read firmware-6.bin from \\IBMCOM\\MACS\\QCA6174\\.");
       return;
    }
    qc_step(26);
-   if (boot_read_file(bd, &g_bdblob)) {
+   rc = read_boot_file(bd, &g_bdblob);
+   g_boot_bd = (USHORT)rc;
+   if (rc) {
       bsay("QCA6174: /F: cannot read board-2.bin from \\IBMCOM\\MACS\\QCA6174\\.");
       return;
    }
@@ -181,10 +210,10 @@ static void boot_load(USHORT mode)
    if (mode < 3)
       return;
    g_initphase = 1;
-   i = (USHORT)ath_up();
+   g_boot_up = (USHORT)ath_up();
    g_initphase = 0;
-   bsay(i == 0 ? "QCA6174: adapter started at boot."
-              : "QCA6174: adapter could not be started at boot (see STATE= in the status text).");
+   bsay(g_boot_up == 0 ? "QCA6174: adapter started at boot."
+                       : "QCA6174: adapter could not be started at boot (see STATE= in the status text).");
 }
 
 /* ---- INIT ---------------------------------------------------------------------------------------- */
