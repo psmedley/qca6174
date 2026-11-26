@@ -285,3 +285,8 @@ writing to DMA memory at INIT is not possible (the memory manager is not ready).
 INITCOMPLETE (after every driver has loaded, before STARTUP.CMD), where the same steps are tried again; the beeps are the same,
 preceded by the 8 beeps of "INIT COMPLETE entered" (with /B). If the file reads fail there ("cannot read firmware-6.bin"),
 the status text and the COM1 trace say so; the driver then simply runs the old way.
+
+Correction after the first trap screen: the "hang" at the first write was my own probe writing byte 0FFFFh of a selector whose
+limit is 0FFFEh (a general protection fault, TRAP 000D, shown as a trap screen at INITCOMPLETE and silent at INIT). So nothing
+is known yet about writing DMA memory at INIT. Both places can now be tried: `/F1../F3` run at INITCOMPLETE, `/G1../G3` run
+the same steps at INIT, before PROTMAN-based work is done by anyone else.

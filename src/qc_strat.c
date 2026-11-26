@@ -21,7 +21,7 @@ static struct {
    USHORT count;
    PSZ    text;
 } gInitMsg = { MSG_REPLACEMENT_STRING, 1, 0 };
-static USHORT g_opt_v, g_opt_q, g_opt_w, g_opt_bad, g_opt_b, g_opt_stop, g_opt_f;
+static USHORT g_opt_v, g_opt_q, g_opt_w, g_opt_bad, g_opt_b, g_opt_stop, g_opt_f, g_opt_early;
 
 /* Boot diagnostics for a machine without a serial port. With /B the driver beeps the number of the step it has
  * reached (n short beeps, then a pause), so a hang can be located by counting the last group. /Sn finishes INIT
@@ -129,7 +129,8 @@ static void parse_args(PSZ p)
          else if (c == 'W') g_opt_w = 1;
          else if (c == 'B') g_opt_b = 1;
          else if (c == 'S' && p[2] >= '1' && p[2] <= '9') g_opt_stop = (USHORT)(p[2] - '0');
-         else if (c == 'F') g_opt_f = (USHORT)((p[2] >= '1' && p[2] <= '3') ? p[2] - '0' : 3);
+         else if (c == 'F') g_opt_f = (USHORT)((p[2] >= '1' && p[2] <= '3') ? p[2] - '0' : 3);          /* at INITCOMPLETE */
+         else if (c == 'G') { g_opt_f = (USHORT)((p[2] >= '1' && p[2] <= '3') ? p[2] - '0' : 3); g_opt_early = 1; }   /* at INIT */
          else if (c == 'A' && (p[2] & 0xDF) == 'A') ;
          else               g_opt_bad = 1;
       }
@@ -249,9 +250,11 @@ static void rt_init(RP_INIT FAR *rp)
       rp->rph.Status |= STDON;
       return;
    }
+   if (g_opt_f && g_opt_early)                        /* /G: the same steps as /F, but already here, at INIT      */
+      boot_load(g_opt_f);
 
    if (g_opt_bad)
-      say("QCA6174: warning - unknown option ignored (valid: /V /Q /W /B /S1../S9 /F1../F3 /AA).");
+      say("QCA6174: warning - unknown option ignored (valid: /V /Q /W /B /S1../S9 /F1../F3 /G1../G3 /AA).");
    if (g_opt_v) {
       say("QCA6174: Qualcomm Atheros QCA6174 802.11ac PCIe WLAN driver for OS/2.");
       say("QCA6174: Version " DRV_VERSION "  Build " DRV_BUILD "  Date " __DATE__ " " __TIME__ ".");
@@ -269,7 +272,7 @@ static void rt_initdone(RPH FAR *rp)
 {
    USHORT i;
    qc_step(8);
-   if (g_opt_f)                                       /* all drivers are loaded: the memory manager is up (writing DMA memory at INIT hung) */
+   if (g_opt_f && !g_opt_early)                       /* all drivers are loaded: the memory manager is up (writing DMA memory at INIT hung) */
       boot_load(g_opt_f);
 
    if (g_opt_w && !g_opt_q)

@@ -161,9 +161,9 @@ int mem_probe(void)
    qc_step(22);                                   /* mapped                                                    */
    p = (UCHAR FAR *)MAKEP(g_csel[0], 0);
    p[0] = 0xA5;
-   p[0xFFFF] = 0x5A;
+   p[0xFFFE] = 0x5A;                              /* the last byte inside the selector's limit (0FFFEh)         */
    qc_step(23);                                   /* written                                                   */
-   if (p[0] != 0xA5 || p[0xFFFF] != 0x5A)
+   if (p[0] != 0xA5 || p[0xFFFE] != 0x5A)
       return -3;
    qc_step(24);                                   /* read back                                                 */
    return 0;
