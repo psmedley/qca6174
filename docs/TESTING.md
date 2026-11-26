@@ -255,7 +255,7 @@ start-up and uses it as the NDIS station address (status text: `MAC=... (saved L
 next boot). First boot after installing: reboot once. If a different card is fitted, the status line says the saved address
 differs from FWMAC; the next boot uses the new one (STARTUP.CMD rewrites the file).
 
-## 18. Loading the firmware at boot (CONFIG.SYS `/F1`, `/F2`, `/F3`) - experimental
+## 18. Loading the firmware at boot (CONFIG.SYS `/F1`, `/F2`, `/F3`) - experimental (runs at INITCOMPLETE)
 
 Goal: no firmware copy lines in STARTUP.CMD, and the MAC address known before the protocol stack binds (like Linux and
 Windows, where the driver loads its own firmware). Off by default; each level adds one step, so a hang shows where it is.
@@ -279,3 +279,9 @@ DEVICE=C:\IBMCOM\MACS\QCA6174.OS2 /B /F1
   (copy the firmware in STARTUP.CMD) still works.
 
 Please report which beeps you hear last for each of `/F1`, `/F2`, `/F3`, and the status text if it boots.
+
+First result (`/F1` at INIT): the DMA chunk mapped (two long + 2 short beeps) and the machine froze at the first write, so
+writing to DMA memory at INIT is not possible (the memory manager is not ready). The experiment therefore runs at
+INITCOMPLETE (after every driver has loaded, before STARTUP.CMD), where the same steps are tried again; the beeps are the same,
+preceded by the 8 beeps of "INIT COMPLETE entered" (with /B). If the file reads fail there ("cannot read firmware-6.bin"),
+the status text and the COM1 trace say so; the driver then simply runs the old way.

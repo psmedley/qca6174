@@ -138,6 +138,14 @@ static void parse_args(PSZ p)
 }
 
 /* ---- loading the firmware at boot (CONFIG.SYS /F1../F3) ---------------------------------------------- */
+/* Messages after INIT go to the COM1 trace only (SaveMessage belongs to INIT). */
+static void bsay(char *s)
+{
+   while (*s)
+      tcom_always(*s++);
+   tcom_always(13); tcom_always(10);
+}
+
 /* Mode 1: only test that DMA memory can be mapped and written at INIT. Mode 2: also read the firmware and board
  * files. Mode 3: also bring the adapter up (polled) so that its MAC address is known before the protocol binds. */
 static void boot_load(USHORT mode)
@@ -147,7 +155,7 @@ static void boot_load(USHORT mode)
    USHORT i;
 
    if (mem_probe()) {
-      say("QCA6174: /F: DMA memory could not be mapped at boot; the firmware must be copied to WRND32$.");
+      bsay("QCA6174: /F: DMA memory could not be mapped at boot; the firmware must be copied to WRND32$.");
       return;
    }
    if (mode < 2)
@@ -159,23 +167,23 @@ static void boot_load(USHORT mode)
       }
    qc_step(25);
    if (boot_read_file(fw, &g_fwblob)) {
-      say("QCA6174: /F: cannot read firmware-6.bin from \\IBMCOM\\MACS\\QCA6174\\.");
+      bsay("QCA6174: /F: cannot read firmware-6.bin from \\IBMCOM\\MACS\\QCA6174\\.");
       return;
    }
    qc_step(26);
    if (boot_read_file(bd, &g_bdblob)) {
-      say("QCA6174: /F: cannot read board-2.bin from \\IBMCOM\\MACS\\QCA6174\\.");
+      bsay("QCA6174: /F: cannot read board-2.bin from \\IBMCOM\\MACS\\QCA6174\\.");
       return;
    }
    qc_step(27);
-   say("QCA6174: firmware and board data loaded at boot.");
+   bsay("QCA6174: firmware and board data loaded at boot.");
    if (mode < 3)
       return;
    g_initphase = 1;
    i = (USHORT)ath_up();
    g_initphase = 0;
-   say(i == 0 ? (PSZ)"QCA6174: adapter started at boot."
-              : (PSZ)"QCA6174: adapter could not be started at boot (see STATE= in the status text).");
+   bsay(i == 0 ? "QCA6174: adapter started at boot."
+              : "QCA6174: adapter could not be started at boot (see STATE= in the status text).");
 }
 
 /* ---- INIT ---------------------------------------------------------------------------------------- */
@@ -241,8 +249,6 @@ static void rt_init(RP_INIT FAR *rp)
       rp->rph.Status |= STDON;
       return;
    }
-   if (g_opt_f)
-      boot_load(g_opt_f);
 
    if (g_opt_bad)
       say("QCA6174: warning - unknown option ignored (valid: /V /Q /W /B /S1../S9 /F1../F3 /AA).");
@@ -263,6 +269,8 @@ static void rt_initdone(RPH FAR *rp)
 {
    USHORT i;
    qc_step(8);
+   if (g_opt_f)                                       /* all drivers are loaded: the memory manager is up (writing DMA memory at INIT hung) */
+      boot_load(g_opt_f);
 
    if (g_opt_w && !g_opt_q)
       for (i = 0; i < 30 * 20; i++)
