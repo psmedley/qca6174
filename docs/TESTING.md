@@ -165,10 +165,10 @@ TCP/IP copies the adapter MAC when it binds at boot, before the firmware is up. 
 `NETADDRESS = "xxxxxxxxxxxx"` under `[QCA6174_NIF]` in PROTOCOL.INI the stack uses 00:00:00:00:00:00 and
 neither ARP nor ping work. The status text shows `MAC=` (in use) and `FWMAC=` (chip); use the `FWMAC` value.
 
-The adapter now starts automatically when the second firmware file is copied. If the firmware copy runs
-before the network is bound (STARTUP.CMD before NETBIND), `NETADDRESS` is no longer needed; the status text
-says `(firmware)` next to `MAC=` and `ndis_set_mac` hands the chip's address to the stack. If the stack still
-binds first, keep `NETADDRESS`.
+The adapter starts automatically when the second firmware file is copied, but on the machines tested the stack has
+bound long before STARTUP.CMD runs, so `NETADDRESS` is needed on every machine (see the helper below). Also copy the firmware
+**before** the supplicant or the Wireless LAN Monitor starts: otherwise the supplicant reads MAC 00:00:00:00:00:00 and the
+4-way handshake fails (seen on a QCA9377, issue #1).
 
 ### NETADDRESS helper
 
@@ -261,3 +261,15 @@ The chip's address is only known once the firmware runs, after the protocol stac
 
 The supported way is `install\QCMAC.CMD` (writes `NETADDRESS` into PROTOCOL.INI once, then reboot) or setting
 `NETADDRESS = "xxxxxxxxxxxx"` under `[QCA6174_NIF]` by hand, the address being `FWMAC=` in the status text.
+
+## 19. Hardware reports
+
+| Card | Machine | Result |
+|---|---|---|
+| QCA6174 `168C:003E` | Dell Latitude 7390 2-in-1, ArcaOS | scan, WPA2-PSK join, DHCP and static IP; HT20/HT40/VHT80; up to 8.5 MB/s on 5 GHz |
+| QCA9377 `168C:0042` rev 30h (hw1.0) | Lenovo Miix 510-12ISK, ArcaOS SMP (issue #1, `d344606`) | works with no source change: scan on 2.4 and 5 GHz, WPA2-PSK join with `wpa_supplicant` 2.10, DHCP, ping, ssh; 1 chain; about 2.5-3 MB/s on a strong link (the test crossed the air twice), 0.75 MB/s at -82 dBm; no RX/TX drops |
+
+Seen on the QCA9377: `CHANNEL = n` in PROTOCOL.INI moves the join to another band, while `wpa_cli` `freq_list` / `bssid` did not
+(the driver picks the strongest AP with the matching SSID); three ping replies of 99-186 ms once, right after unplugging
+Ethernet (not reproduced). Not tested: soak, repeated reboots, wired server, WPA3-only SSIDs, roaming. No SAE: WPA3-only
+networks do not work; a WPA3 transition-mode SSID joins as WPA2-PSK.

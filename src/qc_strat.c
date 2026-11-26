@@ -188,7 +188,7 @@ static void rt_init(RP_INIT FAR *rp)
    if (g_opt_bad)
       say("QCA6174: warning - unknown option ignored (valid: /V /Q /W /B /S1../S9 /AA).");
    if (g_opt_v) {
-      say("QCA6174: Qualcomm Atheros QCA6174 802.11ac PCIe WLAN driver for OS/2.");
+      say("QCA6174: Qualcomm Atheros QCA6174 / QCA9377 802.11ac PCIe WLAN driver for OS/2.");
       say("QCA6174: Version " DRV_VERSION "  Build " DRV_BUILD "  Date " __DATE__ " " __TIME__ ".");
       say(nrc == 0 ? (PSZ)"QCA6174: NDIS MAC registered with the Protocol Manager."
                    : (PSZ)"QCA6174: NDIS MAC not registered (no [QCA6174_NIF] in PROTOCOL.INI?).");

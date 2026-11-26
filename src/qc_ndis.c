@@ -30,7 +30,7 @@ extern USHORT __far __pascal DosDevIOCtl(PVOID data, PVOID parm, USHORT func, US
 extern int sta_tx(UCHAR FAR *eth, USHORT len);    /* ath_sta.c: 0 = queued, -1 = no link, -2 = busy        */
 
 /* ---- tables ---------------------------------------------------------------------------------------- */
-static char g_adapter_descr[] = "Qualcomm Atheros QCA6174 802.11ac PCIe WLAN (OS/2 native)";
+static char g_adapter_descr[] = "Qualcomm Atheros QCA6174 / QCA9377 802.11ac PCIe WLAN (OS/2 native)";
 
 extern struct CommonChars   gCCT;
 extern struct MACSpecChars  gSCT;

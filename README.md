@@ -1,51 +1,69 @@
-# QCA6174 for OS/2 and ArcaOS
+# QCA6174 / QCA9377 for OS/2 and ArcaOS
 
-A native driver for the **Qualcomm Atheros QCA6174 802.11ac PCIe WiFi adapter** (`168C:003E`, the chip in
-the Killer 1525/1535, Dell DW1820 and many laptop M.2 cards) for OS/2 and ArcaOS. It has the same shape as
-the OS2World [RTL88EU / RTL8821AU drivers](https://github.com/OS2World/DRV-NET-RTLUSBWifi), whose OS/2
-plumbing it reuses:
+A native driver for Qualcomm Atheros **ath10k** PCIe 802.11ac WiFi adapters on OS/2 and ArcaOS:
+
+| Card | PCI ID | Status |
+|---|---|---|
+| QCA6174 (hw3.x; Killer 1525/1535, Dell DW1820 and many laptop M.2 cards) | `168C:003E` | working |
+| QCA9377 (hw1.0 / 1.1, 1x1) | `168C:0042` | working (one report, see below) |
+
+It has the same shape as the OS2World [RTL88EU / RTL8821AU drivers](https://github.com/OS2World/DRV-NET-RTLUSBWifi),
+whose OS/2 plumbing it reuses:
 
 * a **GenMAC-compatible device** (`\DEV\WRND32$`, DosDevIOCtl category 99h OID GET/SET), so the ArcaOS
   **Wireless LAN Monitor** (XWLAN) and `wpa_supplicant` can drive it, and
 * an **NDIS 2.0.1 MAC** (`QCA6174_NIF`), so the OS/2 TCP/IP stack binds to it as `lanN`.
 
-The chip side is a port of the Linux **ath10k** driver (PCI bus, copy engines, BMI, HTC, WMI-TLV). It is a
+The chip side is a port of the Linux **ath10k** driver (PCI bus, copy engines, BMI, HTC, WMI-TLV, HTT). It is a
 16-bit physical device driver built with Open Watcom 2.0 and NASM; no IBM DDK is needed.
 
-> **Status: phase 1 and phase 2 written, untested on hardware.** The code builds (cross-built on Linux, and
-> built on OS/2) but has not yet been run on a machine with a QCA6174. Read [docs/TESTING.md](docs/TESTING.md)
-> before trying it. A COM1 cable or a VM serial port helps but is not required: the state can be read from
-> `\DEV\WRND32$`.
+## What works
 
-## What phase 1 is meant to do
+Tested on ArcaOS (SMP kernel):
 
-| Step | Code | Status |
-|---|---|---|
-| Find the card on the PCI bus, map BAR0, DMA memory | `qc_pci.c`, `qc_mem.c` | written |
-| Take `firmware-6.bin` / `board-2.bin` written to `\DEV\WRND32$` | `qc_dbg.c`, `qc_fw.c` | written |
-| Cold + warm reset, copy-engine rings, target configuration | `ath_boot.c`, `ath_ce.c` | written |
-| Board data (by OTP board id or PCI subsystem id), OTP, firmware download over BMI | `ath_boot.c` | written |
-| HTC: wait for READY, connect HTT and WMI services | `ath_htc.c` | written |
-| WMI-TLV: service ready, host memory for the firmware, INIT, READY (MAC address), regdomain, channel list, station vdev | `ath_wmi.c` | written |
-| Scan (2.4 GHz and 5 GHz), BSS list to the Wireless LAN Monitor | `ath_wmi.c`, `ath_sta.c`, `qc_nic.c` | written |
-| Join: vdev, peer, open authentication, association, peer assoc, vdev up | `ath_sta.c`, `ath_wmi.c` | written (phase 2) |
-| WPA2-PSK: EAPOL queue to the supplicant, CCMP keys, peer authorize | `ath_sta.c`, `qc_nic.c` | written (phase 2) |
-| Data: HTT version/ring setup, in-order RX, native-wifi to Ethernet, TX descriptors on CE4 | `ath_htt.c` | written (phase 2) |
+* QCA6174 in a Dell Latitude 7390 2-in-1: scan (2.4 and 5 GHz), WPA2-PSK join with `wpa_supplicant`, DHCP and static IP,
+  HT20/HT40/VHT80 on 5 GHz, up to about 8.5 MB/s from a wired server.
+* QCA9377 in a Lenovo Miix 510-12ISK (issue #1, thanks to the reporter): works with no source change; scan on both bands,
+  WPA2-PSK, DHCP, ping, ssh; 1 spatial stream, about 2.5-3 MB/s on a strong link. See `docs/TESTING.md` section 19.
 
-Not done: HT/VHT rates (legacy rates only), WPA3/WPA1/TKIP/WEP, power save, roaming, AP mode. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) sections 8 and 9.
+Not done: WPA3 (SAE), WPA1/TKIP/WEP, 160 MHz, power save (turned off), roaming, AP mode. Other ath10k chips (QCA988x, QCA9984,
+QCA99x0, ...) use other firmware protocols and need more work. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+[docs/NEXT.md](docs/NEXT.md).
 
-## Install (for testing)
+## Install
 
 1. Copy `bin\QCA6174.OS2` and `install\QCA6174.NIF` to `C:\IBMCOM\MACS`.
-2. Get `firmware-6.bin` and `board-2.bin` from linux-firmware, directory `ath10k/QCA6174/hw3.0/` (hw3.0 and
-   hw3.2 chips use the same files), and copy them to `C:\IBMCOM\MACS\QCA6174\`.
+2. Firmware: copy the two files for your card from `bin\firmware\` (or linux-firmware, `ath10k/QCA6174/hw3.0/` or
+   `ath10k/QCA9377/hw1.0/`) to `C:\IBMCOM\MACS\QCA6174\`. Do not mix the sets (see `bin\firmware\README.md`).
 3. `CONFIG.SYS`: `DEVICE=C:\IBMCOM\MACS\QCA6174.OS2 /V` (only one `WRND32$` driver can be loaded: remove
    GenMAC or an RTL driver line).
-4. `PROTOCOL.INI`: bind `QCA6174_NIF` as in `install\PROTOCOL.INI.example`.
-5. `STARTUP.CMD`: the two `copy /b` lines from `install\STARTUP.CMD.example`.
-6. Reboot. `copy \DEV\WRND32$ con` prints the driver state; `echo up > \DEV\WRND32$` starts the adapter and
-   `echo scan > \DEV\WRND32$` scans, with progress on COM1.
+4. `PROTOCOL.INI`: bind `QCA6174_NIF` as in `install\PROTOCOL.INI.example` (the NIF name is the same for both cards).
+5. `STARTUP.CMD`: the two `copy /b` lines from `install\STARTUP.CMD.example`. They must run **before** the supplicant or the
+   Wireless LAN Monitor starts; otherwise the adapter has MAC `00:00:00:00:00:00` and the WPA2 handshake fails.
+6. The MAC address is only known once the firmware runs, which is after the protocol stack has bound. Reboot once, run
+   `copy \DEV\WRND32$ con` and look for `FWMAC=`, then either run `install\QCMAC.CMD` (it writes `NETADDRESS` into
+   `PROTOCOL.INI`, keeping a `.bak`) or add `NETADDRESS = "xxxxxxxxxxxx"` under `[QCA6174_NIF]` by hand, and reboot again.
+   A different card needs this step again.
+
+`copy \DEV\WRND32$ con` prints the driver state at any time; `echo up > \DEV\WRND32$` starts the adapter and
+`echo scan > \DEV\WRND32$` scans (progress on COM1).
+
+## PROTOCOL.INI settings (`[QCA6174_NIF]`)
+
+| Setting | Meaning |
+|---|---|
+| `NETADDRESS = "xxxxxxxxxxxx"` | The adapter's MAC address (12 hex digits). Needed, see Install step 6. |
+| `CHANNEL = n` | Join only an access point whose primary channel is `n` (for example to prefer 5 GHz). |
+| `MAXWIDTH = 20 \| 40 \| 80` | Widest channel to use (default 80). |
+| `DEDUP = ON` | Drop IPv4 frames identical to one of the last 64 delivered (works around networks that deliver every packet twice). Off by default. |
+
+## Notes
+
+* When benchmarking, download from the server's LAN address, not its public name: a router that loops traffic back
+  (NAT loopback) can deliver every packet twice and look like a slow driver (`docs/TESTING.md` section 15).
+* WPA3-only networks do not work (no SAE); a WPA3 transition-mode SSID joins as WPA2-PSK.
+* The driver picks the strongest access point with the matching SSID; use `CHANNEL` to steer it.
+* Status values, beeps (`/B`) and test steps: [docs/TESTING.md](docs/TESTING.md).
 
 ## Building
 
@@ -56,17 +74,5 @@ multiply/divide/variable shift, DGROUP below 64 KB). See [BUILD.md](BUILD.md).
 ## Licence
 
 GPL-2.0-only (`COPYING`). The OS/2 plumbing derives from the OS2World RTL88EU driver (GPL-2.0-only); the chip
-code is ported from Linux ath10k (ISC). See [PROVENANCE.md](PROVENANCE.md).
-
-
-## QCA9377 (experimental)
-
-The PCIe QCA9377 (`168C:0042`, hw1.0 / hw1.1, 1x1) uses the same TLV firmware family, register map, reset, BMI
-download, WMI/HTT as the QCA6174 hw3.x. The driver accepts that device ID and chip revisions 0/1, and uses the
-firmware-reported RF chain count (`RFCHAINS=` in the status text) for the HT stream count (1 on the 9377).
-**Untested on real hardware.** Firmware: linux-firmware `ath10k/QCA9377/hw1.0/firmware-6.bin` and `board-2.bin`
-(copy both to `\DEV\WRND32$` as for the QCA6174; the NIF, PROTOCOL.INI names and the rest are unchanged).
-Please send the `copy \DEV\WRND32$ con` status text; the first things to check are `ID=168C:0042`, `CHIP=`/`TARGET=`
-(expected target version `05020000` or `05020001`), `STATE=` and `RFCHAINS=`.
-
-Firmware files for each card live in `bin/firmware/<chip>/` (see `bin/firmware/README.md`).
+code is ported from Linux ath10k (ISC). The firmware files are Qualcomm Atheros binaries under the linux-firmware licence.
+See [PROVENANCE.md](PROVENANCE.md).
