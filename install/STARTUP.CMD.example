@@ -1,15 +1,12 @@
 @echo off
-rem STARTUP.CMD lines for the QCA6174 / QCA9377 driver.
+rem STARTUP.CMD lines for the QCA6174 driver.
 rem The driver cannot read files during boot, so the two ath10k firmware files (linux-firmware,
 rem ath10k/QCA6174/hw3.0/) are copied into it once per boot. Board file first or firmware first: either order.
 copy /b C:\IBMCOM\MACS\QCA6174\firmware-6.bin \DEV\WRND32$ > nul
 copy /b C:\IBMCOM\MACS\QCA6174\board-2.bin \DEV\WRND32$ > nul
-rem The adapter starts as soon as both files are copied. Its MAC address is only known then, which is after the
-rem protocol stack has bound at boot, so the driver reads it from the PREVIOUS boot: save the status text here, but only
-rem when the adapter is READY (otherwise an empty file would replace the good one).
-copy \DEV\WRND32$ C:\IBMCOM\MACS\QCA6174\STATUS.TMP > nul
-find "READY" C:\IBMCOM\MACS\QCA6174\STATUS.TMP > nul
-if not errorlevel 1 copy C:\IBMCOM\MACS\QCA6174\STATUS.TMP C:\IBMCOM\MACS\QCA6174\LASTMAC.TXT > nul
-rem The very first boot after installing has no saved address yet: reboot once. (NETADDRESS in PROTOCOL.INI under
-rem [QCA6174_NIF] overrides the saved address; install\QCMAC.CMD writes it for you.)
+rem The adapter now starts as soon as both files are copied, so the driver knows its real MAC before the
+rem protocol stack binds. Keep these lines BEFORE anything that runs NETBIND/LAN start (and before the
+rem Wireless LAN Monitor). If the status text says MAC=00:..., set NETADDRESS in PROTOCOL.INI as a fallback.
+rem (Older note) The adapter starts on the first request of the Wireless LAN Monitor or wpa_supplicant. To start it now
+rem (and see the result on COM1):  echo up > \DEV\WRND32$
 rem The state can be read at any time:  copy \DEV\WRND32$ con

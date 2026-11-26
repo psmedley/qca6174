@@ -246,47 +246,18 @@ speed and the status text. Expect: speed above the previous ~8.5 MB/s, `frames/b
 If anything breaks (no traffic, traps, corrupt downloads), say which commit you tested; `git checkout e0046f1~1` etc. gives
 the build before each step.
 
-## 17. Saved MAC address (no QCMAC.CMD, no NETADDRESS)
+## 17. The MAC address: why it needs a script (results of the boot-time experiments)
 
-The chip's address is only known after the firmware boots, after the stack has bound. STARTUP.CMD now saves the status text
-(only when it says READY) to `C:\IBMCOM\MACS\QCA6174\LASTMAC.TXT`; at the next boot the driver reads `FWMAC=` from it during
-start-up and uses it as the NDIS station address (status text: `MAC=... (saved LASTMAC.TXT)`). Order of precedence:
-`NETADDRESS` in PROTOCOL.INI, then the saved file, then the firmware's address (too late for the stack, so no IP until the
-next boot). First boot after installing: reboot once. If a different card is fitted, the status line says the saved address
-differs from FWMAC; the next boot uses the new one (STARTUP.CMD rewrites the file).
+The chip's address is only known once the firmware runs, after the protocol stack has bound. Tried and dropped:
 
-## 18. Loading the firmware at boot (CONFIG.SYS `/F1`, `/F2`, `/F3`) - experimental (runs at INITCOMPLETE)
+* Saving the status text at one boot and reading it at the next (works in principle, replaced by the simpler
+  `install\QCMAC.CMD` / `NETADDRESS` method).
+* Loading the firmware inside the driver at boot (CONFIG.SYS /F and /G switches, since removed), on a Dell Latitude with
+  ArcaOS 5.x SMP: at INIT a DMA chunk can be mapped, written and read back, but the machine then hangs later in the boot;
+  at INITCOMPLETE DMA memory is fine to write but opening/reading a file hangs the machine. File reads only work at INIT
+  and 1.3 MB of memory is only writable later, so the firmware cannot be loaded by the driver itself.
+* An early version of the probe wrote one byte past the selector limit (TRAP 000D); that was a bug in the probe, not the
+  system.
 
-Goal: no firmware copy lines in STARTUP.CMD, and the MAC address known before the protocol stack binds (like Linux and
-Windows, where the driver loads its own firmware). Off by default; each level adds one step, so a hang shows where it is.
-Use together with `/B` (beeps) and keep a way to boot without the driver (the earlier hang had no on-screen error).
-
-```
-DEVICE=C:\IBMCOM\MACS\QCA6174.OS2 /B /F1
-```
-
-* `/F1`: map one DMA chunk at INIT, write to it and read back. Beeps: two long + 1 short = about to map; + 2 short = mapped;
-  + 3 short = written; + 4 short = read back OK. A hang after "mapped" or "written" means writing to DMA memory at INIT is
-  what hung the first version; then `/F2`/`/F3` can't work and I need another way to get memory writable at INIT.
-* `/F2`: also reads `\IBMCOM\MACS\QCA6174\firmware-6.bin` and `board-2.bin` (`QCA9377` folder for a 9377) into memory at INIT.
-  Beeps: two long + 5 short = reading the firmware file, + 6 short = firmware read, + 7 short = board file read.
-  Boot message: "firmware and board data loaded at boot". The status text then shows `FW=... loaded`, so STARTUP.CMD no longer
-  needs the two firmware `copy` lines (if it still has them the copy is ignored once the adapter runs).
-* `/F3`: also starts the adapter at INIT, polled (no interrupts yet); the interrupt is hooked at the first request after boot.
-  Progress beeps: three long + 1..6 short for ath_up steps 5/10/15/20/25/done. Boot message: "adapter started at boot". The
-  MAC address is then known before the stack binds, so no `NETADDRESS` and no LASTMAC.TXT is needed.
-  If it fails, the driver still loads; the status text shows `STATE=` (the failing step) and `FAILED`, and the normal way
-  (copy the firmware in STARTUP.CMD) still works.
-
-Please report which beeps you hear last for each of `/F1`, `/F2`, `/F3`, and the status text if it boots.
-
-First result (`/F1` at INIT): the DMA chunk mapped (two long + 2 short beeps) and the machine froze at the first write, so
-writing to DMA memory at INIT is not possible (the memory manager is not ready). The experiment therefore runs at
-INITCOMPLETE (after every driver has loaded, before STARTUP.CMD), where the same steps are tried again; the beeps are the same,
-preceded by the 8 beeps of "INIT COMPLETE entered" (with /B). If the file reads fail there ("cannot read firmware-6.bin"),
-the status text and the COM1 trace say so; the driver then simply runs the old way.
-
-Correction after the first trap screen: the "hang" at the first write was my own probe writing byte 0FFFFh of a selector whose
-limit is 0FFFEh (a general protection fault, TRAP 000D, shown as a trap screen at INITCOMPLETE and silent at INIT). So nothing
-is known yet about writing DMA memory at INIT. Both places can now be tried: `/F1../F3` run at INITCOMPLETE, `/G1../G3` run
-the same steps at INIT, before PROTMAN-based work is done by anyone else.
+The supported way is `install\QCMAC.CMD` (writes `NETADDRESS` into PROTOCOL.INI once, then reboot) or setting
+`NETADDRESS = "xxxxxxxxxxxx"` under `[QCA6174_NIF]` by hand, the address being `FWMAC=` in the status text.

@@ -21,36 +21,29 @@ static struct {
    USHORT count;
    PSZ    text;
 } gInitMsg = { MSG_REPLACEMENT_STRING, 1, 0 };
-static USHORT g_opt_v, g_opt_q, g_opt_w, g_opt_bad, g_opt_b, g_opt_stop, g_opt_f, g_opt_early;
+static USHORT g_opt_v, g_opt_q, g_opt_w, g_opt_bad, g_opt_b, g_opt_stop;
 
 /* Boot diagnostics for a machine without a serial port. With /B the driver beeps the number of the step it has
  * reached (n short beeps, then a pause), so a hang can be located by counting the last group. /Sn finishes INIT
  * successfully after step n without doing the rest, to find the step that makes the boot hang.
  *   1 arguments read          4 BAR0 windows mapped            8 INIT COMPLETE entered
  *   2 DMA memory and selectors 5 NDIS MAC registered           9 INIT COMPLETE done
- *   3 PCI scan                6 PROTOCOL.INI read; 7 INIT done
- * With /F: 21-24 DMA chunk mapped and written at INIT, 25-27 firmware files read, 31-36 bring-up progress. */
+ *   3 PCI scan                6 PROTOCOL.INI read; 7 INIT done */
 void qc_step(USHORT n)
 {
-   USHORT i, longs = 0;
+   USHORT i;
 
    tcom_always('['); tcom_always('S'); tcom_always((char)('0' + n / 10)); tcom_always((char)('0' + n % 10));
    tcom_always(']');
    if (!g_opt_b)
       return;
-   if (n >= 30)      { longs = 3; n = (USHORT)(n - 30); }   /* 30+k: three LONG beeps, then k short ones          */
-   else if (n >= 20) { longs = 2; n = (USHORT)(n - 20); }   /* 20+k: two LONG beeps, then k short ones            */
-   else if (n >= 10) { longs = 1; n = (USHORT)(n - 10); }   /* 10+k: one LONG beep, then k short ones             */
-   for (i = 0; i < longs; i++) {
+   if (n >= 10) {                                    /* sub-steps: one LONG beep, then (n - 10) short ones      */
       qc_speaker(1);
-      {
-         USHORT j;
-
-         for (j = 0; j < 6; j++)
-            qc_iodelay(60000);
-      }
+      for (i = 0; i < 6; i++)
+         qc_iodelay(60000);
       qc_speaker(0);
       qc_iodelay(60000);
+      n = (USHORT)(n - 10);
    }
    for (i = 0; i < n; i++) {
       qc_speaker(1);
@@ -103,14 +96,6 @@ ULONG qc_ms(void)
 
 void qc_msleep(USHORT ms)
 {
-   if (g_initphase) {                                /* INIT: no process to block; spin on the millisecond counter */
-      ULONG  t0 = qc_ms();
-      USHORT guard;
-
-      for (guard = 0; guard < 30000 && (long)(qc_ms() - t0) < (long)ms; guard++)
-         qc_iodelay(20);
-      return;
-   }
    rt_dh_procblock(EVT_SLEEP, (ULONG)ms, WAIT_UNINTERRUPTIBLE);
 }
 
@@ -129,91 +114,11 @@ static void parse_args(PSZ p)
          else if (c == 'W') g_opt_w = 1;
          else if (c == 'B') g_opt_b = 1;
          else if (c == 'S' && p[2] >= '1' && p[2] <= '9') g_opt_stop = (USHORT)(p[2] - '0');
-         else if (c == 'F') g_opt_f = (USHORT)((p[2] >= '1' && p[2] <= '3') ? p[2] - '0' : 3);          /* at INITCOMPLETE */
-         else if (c == 'G') { g_opt_f = (USHORT)((p[2] >= '1' && p[2] <= '3') ? p[2] - '0' : 3); g_opt_early = 1; }   /* at INIT */
          else if (c == 'A' && (p[2] & 0xDF) == 'A') ;
          else               g_opt_bad = 1;
       }
       p++;
    }
-}
-
-/* ---- loading the firmware at boot (CONFIG.SYS /F1../F3) ---------------------------------------------- */
-/* Messages after INIT go to the COM1 trace only (SaveMessage belongs to INIT). */
-static void bsay(char *s)
-{
-   while (*s)
-      tcom_always(*s++);
-   tcom_always(13); tcom_always(10);
-}
-
-USHORT g_boot_mode, g_boot_probe = 0xFFFF, g_boot_fw = 0xFFFF, g_boot_bd = 0xFFFF, g_boot_up = 0xFFFF;   /* for the status text */
-
-/* Read a file: first as given, then with C: in front (the current drive may differ at this stage). */
-static int read_boot_file(char *path, BLOB *b)
-{
-   static char full[80];
-   int rc;
-   USHORT i;
-
-   rc = boot_read_file(path, b);
-   if (rc == 0)
-      return 0;
-   full[0] = 'C'; full[1] = ':';
-   for (i = 0; path[i] && i < sizeof(full) - 3; i++)
-      full[2 + i] = path[i];
-   full[2 + i] = 0;
-   if (boot_read_file(full, b) == 0)
-      return 0;
-   return rc;                                            /* the error of the first attempt                         */
-}
-
-/* Mode 1: only test that DMA memory can be mapped and written. Mode 2: also read the firmware and board files.
- * Mode 3: also bring the adapter up (polled) so that its MAC address is known before the protocol binds. */
-static void boot_load(USHORT mode)
-{
-   static char fw[] = "\\IBMCOM\\MACS\\QCA6174\\firmware-6.bin";
-   static char bd[] = "\\IBMCOM\\MACS\\QCA6174\\board-2.bin";
-   USHORT i;
-   int    rc;
-
-   g_boot_mode = mode;
-   rc = mem_probe();
-   g_boot_probe = (USHORT)(rc < 0 ? -rc : 0);
-   if (rc) {
-      bsay("QCA6174: /F: DMA memory could not be mapped at boot; the firmware must be copied to WRND32$.");
-      return;
-   }
-   if (mode < 2)
-      return;
-   if (g_pci_dev == QCA9377_DEV_ID)
-      for (i = 0; i < 4; i++) {
-         fw[16 + i] = "9377"[i];
-         bd[16 + i] = "9377"[i];
-      }
-   qc_step(25);
-   rc = read_boot_file(fw, &g_fwblob);
-   g_boot_fw = (USHORT)rc;
-   if (rc) {
-      bsay("QCA6174: /F: cannot read firmware-6.bin from \\IBMCOM\\MACS\\QCA6174\\.");
-      return;
-   }
-   qc_step(26);
-   rc = read_boot_file(bd, &g_bdblob);
-   g_boot_bd = (USHORT)rc;
-   if (rc) {
-      bsay("QCA6174: /F: cannot read board-2.bin from \\IBMCOM\\MACS\\QCA6174\\.");
-      return;
-   }
-   qc_step(27);
-   bsay("QCA6174: firmware and board data loaded at boot.");
-   if (mode < 3)
-      return;
-   g_initphase = 1;
-   g_boot_up = (USHORT)ath_up();
-   g_initphase = 0;
-   bsay(g_boot_up == 0 ? "QCA6174: adapter started at boot."
-                       : "QCA6174: adapter could not be started at boot (see STATE= in the status text).");
 }
 
 /* ---- INIT ---------------------------------------------------------------------------------------- */
@@ -279,11 +184,9 @@ static void rt_init(RP_INIT FAR *rp)
       rp->rph.Status |= STDON;
       return;
    }
-   if (g_opt_f && g_opt_early)                        /* /G: the same steps as /F, but already here, at INIT      */
-      boot_load(g_opt_f);
 
    if (g_opt_bad)
-      say("QCA6174: warning - unknown option ignored (valid: /V /Q /W /B /S1../S9 /F1../F3 /G1../G3 /AA).");
+      say("QCA6174: warning - unknown option ignored (valid: /V /Q /W /B /S1../S9 /AA).");
    if (g_opt_v) {
       say("QCA6174: Qualcomm Atheros QCA6174 802.11ac PCIe WLAN driver for OS/2.");
       say("QCA6174: Version " DRV_VERSION "  Build " DRV_BUILD "  Date " __DATE__ " " __TIME__ ".");
@@ -301,8 +204,6 @@ static void rt_initdone(RPH FAR *rp)
 {
    USHORT i;
    qc_step(8);
-   if (g_opt_f && !g_opt_early)                       /* all drivers are loaded: the memory manager is up (writing DMA memory at INIT hung) */
-      boot_load(g_opt_f);
 
    if (g_opt_w && !g_opt_q)
       for (i = 0; i < 30 * 20; i++)

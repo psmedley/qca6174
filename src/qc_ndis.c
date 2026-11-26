@@ -307,7 +307,6 @@ WORD __cdecl ndis_c_sysreq(DWORD param1, DWORD param2, WORD param3, WORD opcode)
       return NDIS_INVALID_PARAMETER;
    if (gSST.status & SSTATUS_BOUND)
       return NDIS_ALREADY_STARTED;
-   ath_late_irq();                              /* adapter started at boot (CONFIG.SYS /F3): hook the interrupt now */
    ndis_bufs();
    gProtCCT = *(PCCT)param1;
    gProtLDT = *gProtCCT.pLowDisp;
@@ -596,36 +595,9 @@ static void pi_line(char *l)
    }
 }
 
-/* The last status text the driver produced (STARTUP.CMD saves it): FWMAC=xx:xx:xx:xx:xx:xx is the chip's own address. */
-static void mc_line(char *l)
+void ndis_find_lan(void)
 {
-   static UCHAR m[6];
-   USHORT n = 0;
-   char   c, *v;
-
-   while (*l == ' ' || *l == '\t') l++;
-   if (!(eqn(l, 6, "fwmac=")))
-      return;
-   for (v = l + 6; *v && n < 12; v++) {
-      c = *v;
-      if (c >= '0' && c <= '9') c = (char)(c - '0');
-      else if (c >= 'a' && c <= 'f') c = (char)(c - 'a' + 10);
-      else if (c >= 'A' && c <= 'F') c = (char)(c - 'A' + 10);
-      else continue;
-      if (n & 1) m[n >> 1] = (UCHAR)((m[n >> 1] << 4) | c);
-      else       m[n >> 1] = (UCHAR)c;
-      n++;
-   }
-   if (n != 12 || (!m[0] && !m[1] && !m[2] && !m[3] && !m[4] && !m[5]))
-      return;
-   for (n = 0; n < 6; n++) g_mymac[n] = m[n];
-   ndis_set_mac(g_mymac);
-   g_cfgmac = 2;                                          /* 2: from the saved status text                         */
-}
-
-/* Read a text file line by line and hand each line to fn (INIT time, small files). */
-static void scan_file(char *path, void (*fn)(char *))
-{
+   static char path[] = "\\IBMCOM\\PROTOCOL.INI";
    static USHORT h, action, got;
    USHORT i;
    char   c;
@@ -635,12 +607,14 @@ static void scan_file(char *path, void (*fn)(char *))
                OPEN_FLAGS_NOINHERIT | OPEN_SHARE_DENYNONE | OPEN_ACCESS_READONLY, 0L) != 0)
       return;
    g_pln = 0;
+   g_in_tcpip = 0;
+   g_in_nif = 0;
    while (DosRead(h, (PVOID)g_pbuf, sizeof(g_pbuf), &got) == 0 && got) {
       for (i = 0; i < got; i++) {
          c = g_pbuf[i];
          if (c == '\n') {
             g_pl[g_pln] = 0;
-            (*fn)(g_pl);
+            pi_line(g_pl);
             g_pln = 0;
          } else if (c != '\r' && c != 0x1A && g_pln < PL_MAX)
             g_pl[g_pln++] = c;
@@ -648,21 +622,9 @@ static void scan_file(char *path, void (*fn)(char *))
    }
    if (g_pln) {
       g_pl[g_pln] = 0;
-      (*fn)(g_pl);
+      pi_line(g_pl);
    }
    DosClose(h);
-}
-
-void ndis_find_lan(void)
-{
-   static char path[] = "\\IBMCOM\\PROTOCOL.INI";
-   static char cache[] = "\\IBMCOM\\MACS\\QCA6174\\LASTMAC.TXT";
-
-   g_in_tcpip = 0;
-   g_in_nif = 0;
-   scan_file(path, pi_line);
-   if (!g_cfgmac)
-      scan_file(cache, mc_line);                          /* no NETADDRESS: the address saved at the last boot     */
 }
 
 /* For the status text */
@@ -687,38 +649,4 @@ USHORT ndis_state(USHORT what)
    case 12: return g_ind_drop_off;
    }
    return 0;
-}
-
-/* INIT: read one whole file into a blob (DosRead into the data segment, then copied through a mapped selector). */
-static UCHAR g_ibuf[2048];
-
-int boot_read_file(char *path, BLOB *b)
-{
-   static USHORT h, action, got;
-   USHORT rc;
-   int    wr;
-
-   rc = DosOpen((PSZ)path, &h, &action, 0L, 0,
-                OPEN_ACTION_OPEN_IF_EXISTS | OPEN_ACTION_FAIL_IF_NEW,
-                OPEN_FLAGS_NOINHERIT | OPEN_SHARE_DENYNONE | OPEN_ACCESS_READONLY, 0L);
-   if (rc != 0)
-      return (int)(1000 + rc);                            /* 1000 + the DosOpen return code (2 not found, 3 no path, 5 denied, ...) */
-   blob_reset(b);
-   for (;;) {
-      rc = DosRead(h, (PVOID)g_ibuf, sizeof(g_ibuf), &got);
-      if (rc != 0) {
-         DosClose(h);
-         return (int)(2000 + rc);                         /* 2000 + the DosRead return code                                         */
-      }
-      if (!got)
-         break;
-      wr = blob_write_ds(b, g_ibuf, got);
-      if (wr) {
-         DosClose(h);
-         return 3000 - wr;                                /* 3001..3003: the blob could not be written (memory)                     */
-      }
-   }
-   DosClose(h);
-   b->done = (USHORT)(b->len ? 1 : 0);
-   return b->done ? 0 : 4000;                             /* 4000: empty file                                                       */
 }

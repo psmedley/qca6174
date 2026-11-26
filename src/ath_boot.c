@@ -13,7 +13,6 @@
 USHORT g_hw_ready, g_hw_failed, g_hw_state;
 ULONG  g_chip_id, g_target_ver;
 USHORT g_num_rf;
-UCHAR  g_initphase, g_boot_polled;
 UCHAR  g_mymac[6];
 int    g_bmi_rc;
 
@@ -673,7 +672,6 @@ static int configure_target(void)
 }
 
 /* ---- the whole bring-up -------------------------------------------------------------------------- */
-#define PROG(k) do { if (g_initphase) qc_step((USHORT)(30 + (k))); } while (0)   /* /B beeps while bringing up at INIT */
 #define STEP(n, call) do { g_hw_state = (n); rc = (call); if (rc) { qc_err(#call, (ULONG)(long)rc); goto fail; } } while (0)
 
 int ath_up(void)
@@ -692,17 +690,13 @@ int ath_up(void)
    STEP(3, pci_enable());
    STEP(4, bar_map());
    STEP(5, ce_alloc());
-   PROG(1);
    if (!g_bmi_req.phys) {
       STEP(6, dma_get(BMI_MAX_DATA, &g_bmi_req));
       STEP(7, dma_get(BMI_MAX_DATA, &g_bmi_resp));
    }
-   g_boot_polled = 0;
-   if (!g_initphase) {                                   /* at INIT (CONFIG.SYS /F3) the card is polled; the interrupt is hooked later */
-      hook_init();
-      if (irq_hook())
-         tstr("[no irq: polled]");
-   }
+   hook_init();
+   if (irq_hook())
+      tstr("[no irq: polled]");
    STEP(8, force_wake());
    irq_disable_all();
    STEP(9, chip_reset());
@@ -716,7 +710,6 @@ int ath_up(void)
       STEP(10, (g_pci_dev == QCA9377_DEV_ID ? (rev == 0 || rev == 1)           /* QCA9377 hw1.0 / 1.1                 */
                                            : (rev == 8 || rev == 9 || rev == 10)) ? 0 : -1);   /* QCA6174 hw3.0 / 3.1 / 3.2 */
    }
-   PROG(2);
    ce_init_pipes();
    STEP(11, init_config());
    wake_target_cpu();
@@ -724,18 +717,15 @@ int ath_up(void)
    STEP(13, find_board());
    STEP(14, configure_target());
    STEP(15, download_board_data());
-   PROG(3);
    STEP(16, run_otp());
    STEP(17, code_swap());
    STEP(18, bmi_fast_download(QCA6174_PATCH_LOAD_ADDR, &g_fwblob, g_fw.fw_off, g_fw.fw_len));
    STEP(19, bmi_wr32(HI_SERIAL_ENABLE, 0UL));            /* ath10k_init_uart                              */
    htc_reset();
    STEP(20, bmi_done());
-   PROG(4);
    /* hif start: interrupts on, receive buffers posted */
    ce_irq_enable();
-   if (!g_initphase)
-      intx_enable();
+   intx_enable();
    msi_fw_mask(0);
    ce_rx_fill(1);
    ce_rx_fill(2);
@@ -744,15 +734,10 @@ int ath_up(void)
    STEP(23, htc_connect(HTC_SVC_WMI_CONTROL, &g_wmi_ep));
    STEP(24, htc_start());
    STEP(25, wmi_init_target());
-   PROG(5);
    STEP(26, htt_setup());                                /* version, rx ring, aggregation                  */
-   PROG(6);
    g_hw_state = 100;
    g_hw_ready = 1;
-   if (g_initphase)
-      g_boot_polled = 1;                                /* ath_late_irq() hooks the interrupt at the first task-time request */
-   else
-      intx_enable();                                    /* an interrupt during start-up left it masked   */
+   intx_enable();                                       /* an interrupt during start-up left it masked   */
    tstr("[ready]");
    return 0;
 
@@ -763,18 +748,6 @@ fail:
 }
 
 extern USHORT g_nbarsel;
-
-/* First task-time request after a bring-up at INIT: from now on the card interrupts like after a normal start. */
-void ath_late_irq(void)
-{
-   if (!g_boot_polled)
-      return;
-   g_boot_polled = 0;
-   hook_init();
-   if (irq_hook())
-      tstr("[no irq: polled]");
-   intx_enable();
-}
 
 void ath_down(void)
 {
